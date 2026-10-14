@@ -1,0 +1,51 @@
+// Minecraft 26.x ships unobfuscated, so this uses the non-remapping Fabric Loom.
+plugins {
+    id("net.fabricmc.fabric-loom") version "1.18.3"
+}
+
+val minecraft = property("minecraft_version") as String
+
+version = "${property("mod_version")}+$minecraft"
+group = "io.github.octomiku01"
+
+base {
+    archivesName = "lodgen"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    withSourcesJar()
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.release = 25
+    options.encoding = "UTF-8"
+}
+
+dependencies {
+    minecraft("com.mojang:minecraft:$minecraft")
+    implementation("net.fabricmc:fabric-loader:${property("loader_version")}")
+    implementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_api_version")}")
+    compileOnly(files(property("voxy_jar")))
+}
+
+tasks.processResources {
+    val props = mapOf(
+        "version" to project.version,
+        "minecraft_version" to minecraft,
+        "loader_version" to project.property("loader_version"),
+    )
+    inputs.properties(props)
+    filesMatching("fabric.mod.json") {
+        expand(props)
+    }
+}
+
+loom {
+    runs {
+        named("server") {
+            // Measure generation speed on the dev server: no Voxy, no player, results are discarded
+            vmArg("-Dlodgen.benchmark=true")
+        }
+    }
+}
