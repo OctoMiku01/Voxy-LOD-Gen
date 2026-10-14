@@ -2,7 +2,7 @@
 	"schemaVersion": 1,
 	"id": "lodgen",
 	"version": "${version}",
-	"name": "LOD Gen",
+	"name": "Voxy LOD Gen",
 	"description": "Generates distant terrain for Voxy LODs without creating or saving real chunks.",
 	"authors": [
 		"OctoMiku01"

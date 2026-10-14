@@ -1,4 +1,4 @@
-# LOD Gen
+# Voxy LOD Gen
 
 Generates distant terrain for [Voxy](https://modrinth.com/mod/voxy) LODs without creating or saving real chunks.
 Minecraft 26.2, Fabric.
@@ -25,6 +25,8 @@ A chunk several players need is generated once.
 - `/lodgen` shows the progress and speed, `/lodgen pause` / `/lodgen resume`
 - `/lodgen reset` sends your LODs of the current dimension again (e.g. after deleting Voxy's data)
 - Progress is stored per player and dimension in `<world>/lodgen/players/`
+
+Mod id, command, config file and save folder are all `lodgen`.
 
 ## Building
 

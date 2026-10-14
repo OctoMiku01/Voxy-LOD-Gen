@@ -9,7 +9,7 @@ version = "${property("mod_version")}+$minecraft"
 group = "io.github.octomiku01"
 
 base {
-    archivesName = "lodgen"
+    archivesName = "voxy-lodgen"
 }
 
 java {

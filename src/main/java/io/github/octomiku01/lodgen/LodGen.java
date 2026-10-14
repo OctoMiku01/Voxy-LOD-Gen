@@ -73,7 +73,7 @@ public class LodGen implements ModInitializer {
     }
 
     private static int reply(CommandContext<CommandSourceStack> context, String message) {
-        context.getSource().sendSuccess(() -> Component.literal("[LOD Gen] " + message), false);
+        context.getSource().sendSuccess(() -> Component.literal("[Voxy LOD Gen] " + message), false);
         return 1;
     }
 }

@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "lodgen"
+rootProject.name = "voxy-lodgen"
