@@ -26,10 +26,10 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * Only the steps that shape what a distant LOD shows run here: biomes, noise (base terrain) and surface. Structures,
  * carvers, features, the light engine, mob spawning and saving are skipped. The chunk never enters the vanilla chunk
- * system, so nothing is loaded, ticked or written to the region files. The result goes to a {@link LodSink}.
+ * system, so nothing is loaded, ticked or written to the region files.
  */
 final class LodChunkBuilder {
-    private static final int FULL_SKY_LIGHT = 15;
+    private static final int MAX_SKY_LIGHT = 15;
 
     private final ServerLevel level;
     private final NoiseBasedChunkGenerator generator;
@@ -39,9 +39,8 @@ final class LodChunkBuilder {
     private final WorldGenerationContext context;
     private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
-    private final LodSink sink;
 
-    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, LodSink sink) {
+    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator) {
         this.level = level;
         this.generator = generator;
         this.biomeSource = generator.getBiomeSource();
@@ -51,23 +50,19 @@ final class LodChunkBuilder {
         // Surface rules only use this to skip rules for biomes that cannot occur; a superset is always correct
         this.possibleBiomes = this.biomeSource.possibleBiomes();
         this.biomeZoomSeed = BiomeManager.obfuscateSeed(level.getSeed());
-        this.sink = sink;
     }
 
     /**
      * @return null if this dimension cannot be generated (not a noise based generator, e.g. superflat)
      */
-    static @Nullable LodChunkBuilder create(ServerLevel level, LodSink sink) {
+    static @Nullable LodChunkBuilder create(ServerLevel level) {
         if (!(level.getChunkSource().getGenerator() instanceof NoiseBasedChunkGenerator generator)) {
             return null;
         }
-        return new LodChunkBuilder(level, generator, sink);
+        return new LodChunkBuilder(level, generator);
     }
 
-    /**
-     * @return false if the sink did not accept the data (e.g. Voxy not ready yet), so the chunk should be tried again later
-     */
-    boolean build(ChunkPos pos) {
+    LodChunk build(ChunkPos pos) {
         ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
 
         // Like vanilla, mark each finished step: the chunk refuses e.g. biome lookups before its biomes exist
@@ -78,7 +73,7 @@ final class LodChunkBuilder {
         this.generator.buildSurface(chunk, this.context, this.randomState, this.noStructures, this.biomeManager(chunk), Blender.empty(), this.possibleBiomes);
         chunk.setPersistedStatus(ChunkStatus.SURFACE);
 
-        return this.ingest(chunk);
+        return this.toLodChunk(chunk);
     }
 
     // Biome blending at the chunk edge looks at the neighbouring chunks: those biomes are computed directly
@@ -97,7 +92,7 @@ final class LodChunkBuilder {
      * Instead of running the light engine, sky light is approximated per column: full above the terrain, fading by
      * one level per block of water below it, and dark below the first other block.
      */
-    private boolean ingest(ProtoChunk chunk) {
+    private LodChunk toLodChunk(ProtoChunk chunk) {
         LevelChunkSection[] sections = chunk.getSections();
         int minSectionY = chunk.getMinSectionY();
         int minY = chunk.getMinY();
@@ -126,7 +121,7 @@ final class LodChunkBuilder {
                     }
                 }
                 // light fades through water below the surface
-                int light = FULL_SKY_LIGHT;
+                int light = MAX_SKY_LIGHT;
                 for (; y >= minY; y--) {
                     BlockState state = sections[(y >> 4) - minSectionY].getBlockState(x, y & 15, z);
                     if (state.getFluidState().isEmpty() || --light <= 0) {
@@ -141,24 +136,26 @@ final class LodChunkBuilder {
         }
 
         // Everything well above the terrain is empty sky: no need to send it
-        int lastSection = Math.min(sections.length - 1, ((highest + 1) >> 4) - minSectionY);
-        ChunkPos pos = chunk.getPos();
-        for (int index = 0; index <= lastSection; index++) {
-            int sectionY = minSectionY + index;
-            DataLayer skyLight = this.skyLight(sectionY << 4, skyTop, skyBottom);
-            if (!this.sink.accept(pos.x(), sectionY, pos.z(), sections[index], skyLight)) {
-                return false;
-            }
+        int count = Math.min(sections.length, ((highest + 1) >> 4) - minSectionY + 1);
+        LevelChunkSection[] kept = new LevelChunkSection[count];
+        DataLayer[] skyLight = new DataLayer[count];
+        for (int index = 0; index < count; index++) {
+            kept[index] = sections[index];
+            skyLight[index] = this.skyLight((minSectionY + index) << 4, highest, skyTop, skyBottom);
         }
-        return true;
+        ChunkPos pos = chunk.getPos();
+        return new LodChunk(pos.x(), pos.z(), minSectionY, kept, skyLight);
     }
 
-    private @Nullable DataLayer skyLight(int baseY, int[] skyTop, int[] skyBottom) {
+    private @Nullable DataLayer skyLight(int baseY, int highest, int[] skyTop, int[] skyBottom) {
+        if (baseY > highest) {
+            return LodChunk.FULL_SKY_LIGHT;
+        }
         DataLayer layer = null;
         for (int column = 0; column < 256; column++) {
             int from = Math.max(baseY, skyBottom[column]);
             for (int y = from; y < baseY + 16; y++) {
-                int light = y > skyTop[column] ? FULL_SKY_LIGHT : FULL_SKY_LIGHT - (skyTop[column] - y + 1);
+                int light = y > skyTop[column] ? MAX_SKY_LIGHT : MAX_SKY_LIGHT - (skyTop[column] - y + 1);
                 if (light <= 0) {
                     continue;
                 }

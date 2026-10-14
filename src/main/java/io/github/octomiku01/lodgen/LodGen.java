@@ -5,10 +5,11 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,18 +22,11 @@ public class LodGen implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        PayloadTypeRegistry.clientboundPlay().register(LodChunkPayload.TYPE, LodChunkPayload.CODEC);
+
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             // Benchmark mode (-Dlodgen.benchmark=true) measures generation speed without Voxy and without a player
             boolean benchmark = Boolean.getBoolean("lodgen.benchmark");
-            // Voxy renders on the client: the LODs are handed to it directly, which only works in single player
-            if (server.isDedicatedServer() && !benchmark) {
-                LOGGER.info("Dedicated server: LOD generation is only available in single player for now");
-                return;
-            }
-            if (!benchmark && !FabricLoader.getInstance().isModLoaded("voxy")) {
-                LOGGER.warn("Voxy is not installed, no LODs are generated");
-                return;
-            }
             LodConfig config = LodConfig.load();
             if (config.enabled) {
                 generator = new LodGenerator(server, config, benchmark);
@@ -54,9 +48,10 @@ public class LodGen implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
                 Commands.literal("lodgen")
-                        .executes(context -> reply(context, generator == null ? "not running" : generator.status()))
+                        .executes(context -> reply(context, generator == null ? "not running" : generator.status(context.getSource().getPlayer())))
                         .then(Commands.literal("pause").executes(context -> setPaused(context, true)))
                         .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
+                        .then(Commands.literal("reset").executes(LodGen::reset))
         ));
     }
 
@@ -66,6 +61,15 @@ public class LodGen implements ModInitializer {
         }
         generator.setPaused(paused);
         return reply(context, paused ? "paused" : "resumed");
+    }
+
+    // e.g. after deleting Voxy's data: all LODs of the current dimension are sent again
+    private static int reset(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (generator == null || player == null) {
+            return reply(context, "not running");
+        }
+        return reply(context, generator.reset(player) ? "your LODs in this dimension will be generated again" : "you get no LODs");
     }
 
     private static int reply(CommandContext<CommandSourceStack> context, String message) {

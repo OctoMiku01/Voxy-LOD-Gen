@@ -3,11 +3,12 @@ package io.github.octomiku01.lodgen;
 import me.cortex.voxy.common.world.service.VoxelIngestService;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.chunk.DataLayer;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import org.jetbrains.annotations.Nullable;
 
-/** Hands sections to Voxy. Only loaded when Voxy is installed. */
+/**
+ * Hands LODs straight to Voxy in this game instance: for the player hosting a single player world, whose client runs
+ * in the same process as the server. Only loaded when Voxy is installed.
+ */
 final class VoxySink implements LodSink {
     private final WorldIdentifier world;
 
@@ -21,7 +22,13 @@ final class VoxySink implements LodSink {
     }
 
     @Override
-    public boolean accept(int chunkX, int sectionY, int chunkZ, LevelChunkSection section, @Nullable DataLayer skyLight) {
-        return VoxelIngestService.rawIngest(this.world, section, chunkX, sectionY, chunkZ, null, skyLight);
+    public boolean accept(LodChunk chunk) {
+        boolean[] accepted = {true};
+        chunk.forEachSection((sectionY, section, skyLight) -> {
+            if (accepted[0] && !VoxelIngestService.rawIngest(this.world, section, chunk.x, sectionY, chunk.z, null, skyLight)) {
+                accepted[0] = false;
+            }
+        });
+        return accepted[0];
     }
 }

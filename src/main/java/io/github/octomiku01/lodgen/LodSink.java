@@ -1,16 +1,12 @@
 package io.github.octomiku01.lodgen;
 
-import net.minecraft.world.level.chunk.DataLayer;
-import net.minecraft.world.level.chunk.LevelChunkSection;
-import org.jetbrains.annotations.Nullable;
-
-/** Receives the generated sections of one dimension. */
+/** Delivers generated LODs to one player. */
 interface LodSink {
     /**
-     * @return false if the data was not accepted and the chunk should be generated again later
+     * @return false if the chunk was not delivered and should be tried again later
      */
-    boolean accept(int chunkX, int sectionY, int chunkZ, LevelChunkSection section, @Nullable DataLayer skyLight);
+    boolean accept(LodChunk chunk);
 
     /** For measuring generation speed without Voxy (benchmark mode) */
-    LodSink DISCARD = (chunkX, sectionY, chunkZ, section, skyLight) -> true;
+    LodSink DISCARD = chunk -> true;
 }

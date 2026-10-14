@@ -19,6 +19,10 @@ final class LodConfig {
     int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 4);
     /** Chunks closer than the view distance plus this margin are left to the game */
     int viewDistanceMargin = 2;
+    /** Send LODs to other players whose client has this mod and Voxy */
+    boolean sendToPlayers = true;
+    /** Per player that gets LODs over the network; about 20 KiB each before the connection compresses them */
+    int maxChunksPerSecondPerPlayer = 20;
 
     static LodConfig load() {
         LodConfig config = new LodConfig();
@@ -38,6 +42,7 @@ final class LodConfig {
         config.radius = Math.max(1, config.radius);
         config.threads = Math.max(1, config.threads);
         config.viewDistanceMargin = Math.max(0, config.viewDistanceMargin);
+        config.maxChunksPerSecondPerPlayer = Math.max(1, config.maxChunksPerSecondPerPlayer);
         return config;
     }
 }

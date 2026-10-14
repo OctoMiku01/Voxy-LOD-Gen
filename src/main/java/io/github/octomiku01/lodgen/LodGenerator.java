@@ -10,13 +10,19 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -28,50 +34,55 @@ import net.minecraft.world.level.storage.LevelResource;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Picks the chunks around the player that still need an LOD, nearest first, and builds them on a worker pool.
+ * Picks the chunks around each player that still need an LOD, nearest first, builds them on a worker pool and
+ * delivers them: straight to Voxy for the player hosting a single player world, over the network to every other
+ * player whose client has this mod and Voxy. A chunk several players need is built once.
  * <p>
- * Threads: the server thread only publishes where the player is ({@link #onServerTick}); one scheduler thread walks
- * outward from there in square rings and hands chunks to the workers; the workers build and ingest them.
+ * Threads: the server thread only publishes where the players are ({@link #onServerTick}); one scheduler thread walks
+ * outward from each of them in square rings and hands chunks to the workers; the workers build and deliver them.
  */
 final class LodGenerator {
     private static final long SAVE_INTERVAL_MILLIS = 60_000;
     private static final long STATS_INTERVAL_MILLIS = 10_000;
-    private static final long VOXY_RETRY_MILLIS = 2_000;
+    private static final long RETRY_MILLIS = 2_000;
     /** Moving this many chunks restarts the search at the player, so nearby gaps are filled first */
     private static final int RESCAN_DISTANCE = 8;
     private static final int MAX_LOGGED_ERRORS = 10;
+    /** Players without a profile, e.g. the benchmark, share this id */
+    private static final UUID NO_PLAYER = new UUID(0, 0);
 
-    private record Target(ServerLevel level, int chunkX, int chunkZ, int viewDistance) {
+    /** Where a player who gets LODs is; published by the server thread */
+    private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, @Nullable ServerPlayer player) {
     }
 
-    private final class Dimension {
-        final ServerLevel level;
-        final @Nullable LodChunkBuilder builder;
-        final SavedChunks saved;
-        final Path progressFile;
+    /** One player's progress in one dimension */
+    private static final class Progress {
+        final Path file;
         final LongOpenHashSet done = new LongOpenHashSet(); // guarded by itself
-        final LongOpenHashSet queued = new LongOpenHashSet(); // guarded by itself
         volatile boolean dirty;
         /** Set by workers to restart the search at the player */
         volatile boolean rescan;
-        // search cursor, scheduler thread only
+        volatile long pausedUntil;
+        // scheduler thread only
         int centerX;
         int centerZ;
         int ring = -1;
         int ringIndex;
+        double tokens;
+        long lastRefill;
+        volatile int shownRing = -1;
 
-        Dimension(ServerLevel level) {
-            this.level = level;
-            LodSink sink = LodGenerator.this.benchmark ? LodSink.DISCARD : VoxySink.create(level);
-            this.builder = sink == null ? null : LodChunkBuilder.create(level, sink);
-            Path worldRoot = LodGenerator.this.server.getWorldPath(LevelResource.ROOT);
-            this.saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), worldRoot).resolve("region"));
-            this.progressFile = worldRoot.resolve("lodgen").resolve(level.dimension().identifier().getNamespace())
-                    .resolve(level.dimension().identifier().getPath() + ".bin");
-            this.load();
-            if (this.builder == null) {
-                LodGen.LOGGER.info("{}: no LODs, the dimension is not supported", level.dimension().identifier());
+        Progress(Path file, @Nullable Path legacyFile) {
+            this.file = file;
+            if (!Files.exists(file) && legacyFile != null && Files.exists(legacyFile)) {
+                try {
+                    Files.createDirectories(file.getParent());
+                    Files.move(legacyFile, file);
+                } catch (IOException e) {
+                    LodGen.LOGGER.warn("Could not move {} to {}", legacyFile, file, e);
+                }
             }
+            this.load();
         }
 
         boolean isDone(long key) {
@@ -93,17 +104,25 @@ final class LodGenerator {
             }
         }
 
+        void clear() {
+            synchronized (this.done) {
+                this.done.clear();
+            }
+            this.dirty = true;
+            this.rescan = true;
+        }
+
         private void load() {
-            if (!Files.exists(this.progressFile)) {
+            if (!Files.exists(this.file)) {
                 return;
             }
-            try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(this.progressFile)))) {
+            try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(this.file)))) {
                 int count = in.readInt();
                 for (int i = 0; i < count; i++) {
                     this.done.add(in.readLong());
                 }
             } catch (IOException e) {
-                LodGen.LOGGER.error("Could not read {}, LODs will be generated again", this.progressFile, e);
+                LodGen.LOGGER.error("Could not read {}, LODs will be generated again", this.file, e);
                 this.done.clear();
             }
         }
@@ -114,8 +133,8 @@ final class LodGenerator {
             }
             this.dirty = false;
             try {
-                Files.createDirectories(this.progressFile.getParent());
-                Path temp = this.progressFile.resolveSibling(this.progressFile.getFileName() + ".tmp");
+                Files.createDirectories(this.file.getParent());
+                Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");
                 try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temp)))) {
                     synchronized (this.done) {
                         out.writeInt(this.done.size());
@@ -124,30 +143,83 @@ final class LodGenerator {
                         }
                     }
                 }
-                Files.move(temp, this.progressFile, StandardCopyOption.REPLACE_EXISTING);
+                Files.move(temp, this.file, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException e) {
                 this.dirty = true;
-                LodGen.LOGGER.error("Could not save {}", this.progressFile, e);
+                LodGen.LOGGER.error("Could not save {}", this.file, e);
             }
+        }
+    }
+
+    private record Recipient(LodSink sink, Progress progress) {
+    }
+
+    /** One chunk to build, and everyone it goes to */
+    private static final class Task {
+        private final List<Recipient> recipients = new ArrayList<>(2);
+        private boolean delivering;
+
+        synchronized boolean add(Recipient recipient) {
+            if (this.delivering) {
+                return false;
+            }
+            this.recipients.add(recipient);
+            return true;
+        }
+
+        synchronized List<Recipient> startDelivery() {
+            this.delivering = true;
+            return this.recipients;
+        }
+    }
+
+    private final class Dimension {
+        final ServerLevel level;
+        final @Nullable LodChunkBuilder builder;
+        final SavedChunks saved; // scheduler thread only
+        final Map<Long, Task> queued = new ConcurrentHashMap<>();
+        @Nullable LodSink hostSink; // scheduler thread only
+        boolean hostSinkCreated;
+
+        Dimension(ServerLevel level) {
+            this.level = level;
+            this.builder = LodChunkBuilder.create(level);
+            Path worldRoot = LodGenerator.this.server.getWorldPath(LevelResource.ROOT);
+            this.saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), worldRoot).resolve("region"));
+            if (this.builder == null) {
+                LodGen.LOGGER.info("{}: no LODs, the dimension is not supported", level.dimension().identifier());
+            }
+        }
+
+        @Nullable LodSink hostSink() {
+            if (!this.hostSinkCreated) {
+                this.hostSinkCreated = true;
+                this.hostSink = VoxySink.create(this.level);
+            }
+            return this.hostSink;
         }
     }
 
     private final MinecraftServer server;
     private final LodConfig config;
     private final boolean benchmark;
+    /** Voxy runs in this game instance, so the host gets LODs without the network */
+    private final boolean localVoxy;
     private final ExecutorService workers;
     private final Thread scheduler;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicLong generated = new AtomicLong();
+    private final AtomicLong sent = new AtomicLong();
     private final AtomicInteger errors = new AtomicInteger();
     /** Workers wake the scheduler through this as soon as they finish a chunk */
     private final Object workerFinished = new Object();
-    private volatile @Nullable Target target;
+    private volatile List<Viewer> viewers = List.of();
     private volatile boolean running = true;
     private volatile boolean paused;
-    private volatile long retryAt;
     private volatile double rate;
+    private int turn; // scheduler thread only
 
     /**
      * @param benchmark generate around the world spawn without a player and discard the result, to measure speed
@@ -156,6 +228,7 @@ final class LodGenerator {
         this.server = server;
         this.config = config;
         this.benchmark = benchmark;
+        this.localVoxy = !server.isDedicatedServer() && FabricLoader.getInstance().isModLoaded("voxy");
         AtomicInteger threadNumber = new AtomicInteger();
         this.workers = Executors.newFixedThreadPool(config.threads, runnable -> {
             Thread thread = new Thread(runnable, "LodGen-Worker-" + threadNumber.incrementAndGet());
@@ -173,46 +246,61 @@ final class LodGenerator {
         return (long) x & 0xFFFFFFFFL | ((long) z & 0xFFFFFFFFL) << 32;
     }
 
-    /** Server thread: publish where the player is. Only the first player counts (single player). */
+    /** Server thread: publish who gets LODs and where they are */
     void onServerTick() {
-        ServerPlayer player = this.server.getPlayerList().getPlayers().stream().findFirst().orElse(null);
-        if (player == null) {
-            if (!this.benchmark) {
-                this.target = null;
-            } else if (this.target == null) {
-                this.target = new Target(this.server.overworld(), 0, 0, this.server.getPlayerList().getViewDistance());
+        List<Viewer> current = new ArrayList<>();
+        for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
+            boolean host = this.localVoxy && this.server.isSingleplayerOwner(player.nameAndId());
+            if (!host && !(this.config.sendToPlayers && ServerPlayNetworking.canSend(player, LodChunkPayload.TYPE))) {
+                continue;
             }
-            return;
+            ChunkPos pos = player.chunkPosition();
+            current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player));
         }
-        ChunkPos pos = player.chunkPosition();
-        Target current = this.target;
-        ServerLevel level = (ServerLevel) player.level();
-        int viewDistance = this.server.getPlayerList().getViewDistance();
-        if (current == null || current.level != level || current.chunkX != pos.x() || current.chunkZ != pos.z() || current.viewDistance != viewDistance) {
-            this.target = new Target(level, pos.x(), pos.z(), viewDistance);
+        if (current.isEmpty() && this.benchmark) {
+            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, null));
         }
+        this.viewers = List.copyOf(current);
     }
 
     void setPaused(boolean paused) {
         this.paused = paused;
     }
 
-    String status() {
-        Target current = this.target;
-        if (current == null) {
-            return "no player";
+    /** Forgets which LODs this player already got in their current dimension, so they are sent again */
+    boolean reset(ServerPlayer player) {
+        Viewer viewer = this.viewerOf(player.getUUID());
+        if (viewer == null) {
+            return false;
         }
-        Dimension dimension = this.dimensions.get(current.level.dimension());
-        if (dimension == null) {
-            return "starting";
+        this.progressOf(viewer).clear();
+        return true;
+    }
+
+    String status(@Nullable ServerPlayer asking) {
+        List<Viewer> current = this.viewers;
+        StringBuilder text = new StringBuilder(this.paused ? "[paused] " : "");
+        text.append(String.format("%.1f chunks/s, %d in progress, %d threads, %d player(s), %d sent over the network",
+                this.rate, this.inFlight.get(), this.config.threads, current.size(), this.sent.get()));
+        Viewer viewer = asking == null ? null : this.viewerOf(asking.getUUID());
+        if (viewer == null && current.size() == 1) {
+            viewer = current.getFirst();
         }
-        if (dimension.builder == null) {
-            return current.level.dimension().identifier() + ": not supported";
+        if (viewer != null) {
+            Dimension dimension = this.dimensions.get(viewer.level.dimension());
+            if (dimension != null && dimension.builder == null) {
+                text.append("; ").append(viewer.level.dimension().identifier()).append(" is not supported");
+            } else {
+                Progress progress = this.progressOf(viewer);
+                int ring = progress.shownRing;
+                text.append(String.format("; %s in %s: %s, %d LOD chunks", viewer.name, viewer.level.dimension().identifier(),
+                        ring < 0 ? "starting" : ring > this.config.radius ? "done" : "ring " + ring + "/" + this.config.radius,
+                        progress.doneCount()));
+            }
+        } else if (asking != null) {
+            text.append("; you get no LODs (this mod or Voxy is missing on your client)");
         }
-        String ring = dimension.ring < 0 ? "-" : dimension.ring > this.config.radius ? "done" : dimension.ring + "/" + this.config.radius;
-        return String.format("%s%s: ring %s, %d LOD chunks, %.1f chunks/s, %d in progress, %d threads",
-                this.paused ? "[paused] " : "", current.level.dimension().identifier(), ring, dimension.doneCount(),
-                this.rate, this.inFlight.get(), this.config.threads);
+        return text.toString();
     }
 
     void stop() {
@@ -227,7 +315,34 @@ final class LodGenerator {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        this.dimensions.values().forEach(Dimension::save);
+        this.saveAll();
+    }
+
+    private @Nullable Viewer viewerOf(UUID id) {
+        for (Viewer viewer : this.viewers) {
+            if (viewer.id.equals(id)) {
+                return viewer;
+            }
+        }
+        return null;
+    }
+
+    private Progress progressOf(Viewer viewer) {
+        ResourceKey<Level> key = viewer.level.dimension();
+        return this.progress.computeIfAbsent(viewer.id, id -> new ConcurrentHashMap<>()).computeIfAbsent(key, k -> {
+            Path lodgen = this.server.getWorldPath(LevelResource.ROOT).resolve("lodgen");
+            String fileName = key.identifier().getPath() + ".bin";
+            Path file = lodgen.resolve("players").resolve(viewer.id.toString()).resolve(key.identifier().getNamespace()).resolve(fileName);
+            // Before LODs were sent to other players, the host's progress was stored directly in lodgen/
+            Path legacy = viewer.host ? lodgen.resolve(key.identifier().getNamespace()).resolve(fileName) : null;
+            return new Progress(file, legacy);
+        });
+    }
+
+    private void saveAll() {
+        for (Map<ResourceKey<Level>, Progress> byDimension : this.progress.values()) {
+            byDimension.values().forEach(Progress::save);
+        }
     }
 
     private void schedulerLoop() {
@@ -235,14 +350,10 @@ final class LodGenerator {
         long lastStats = lastSave;
         long generatedAtLastStats = 0;
         while (this.running) {
-            boolean moreWork = false;
             try {
-                Target current = this.target;
-                if (current != null && !this.paused && System.currentTimeMillis() >= this.retryAt) {
-                    Dimension dimension = this.dimensions.computeIfAbsent(current.level.dimension(), key -> new Dimension(current.level));
-                    if (dimension.builder != null) {
-                        moreWork = this.fillQueue(dimension, current);
-                    }
+                boolean full = false;
+                if (!this.paused) {
+                    full = this.fillQueue();
                 }
 
                 long now = System.currentTimeMillis();
@@ -250,24 +361,26 @@ final class LodGenerator {
                     long total = this.generated.get();
                     this.rate = (total - generatedAtLastStats) * 1000.0 / (now - lastStats);
                     if (total != generatedAtLastStats) {
-                        LodGen.LOGGER.info("{}", this.status());
+                        LodGen.LOGGER.info("{}", this.status(null));
                     }
                     generatedAtLastStats = total;
                     lastStats = now;
                 }
                 if (now - lastSave >= SAVE_INTERVAL_MILLIS) {
-                    this.dimensions.values().forEach(Dimension::save);
+                    this.saveAll();
                     lastSave = now;
                 }
-                if (moreWork) {
-                    // The queue is full: continue as soon as a worker is done
+
+                if (full) {
+                    // The workers have enough to do: continue as soon as one of them is done
                     synchronized (this.workerFinished) {
                         if (this.inFlight.get() >= this.capacity()) {
                             this.workerFinished.wait(50);
                         }
                     }
                 } else {
-                    Thread.sleep(250);
+                    // Nothing left, or players are waiting for their send rate
+                    Thread.sleep(50);
                 }
             } catch (InterruptedException e) {
                 return;
@@ -283,31 +396,96 @@ final class LodGenerator {
     }
 
     /**
-     * Walks square rings around the player, nearest first, and queues chunks until the workers have enough to do.
+     * Takes turns between the players, one chunk each, until the workers have enough to do.
      *
-     * @return false once every chunk within the radius is done
+     * @return whether the queue is full
      */
-    private boolean fillQueue(Dimension dimension, Target target) {
-        int minRing = target.viewDistance + this.config.viewDistanceMargin + 1;
-        if (dimension.ring < 0 || dimension.rescan || Math.max(Math.abs(target.chunkX - dimension.centerX), Math.abs(target.chunkZ - dimension.centerZ)) >= RESCAN_DISTANCE) {
-            dimension.centerX = target.chunkX;
-            dimension.centerZ = target.chunkZ;
-            dimension.ring = minRing;
-            dimension.ringIndex = 0;
-            dimension.rescan = false;
-        }
-
-        int capacity = this.capacity();
-        long radiusSquared = (long) this.config.radius * this.config.radius;
-        while (this.inFlight.get() < capacity && dimension.ring <= this.config.radius) {
-            int ring = dimension.ring;
-            int index = dimension.ringIndex;
-            if (index >= 8 * ring) {
-                dimension.ring++;
-                dimension.ringIndex = 0;
+    private boolean fillQueue() {
+        List<Viewer> current = this.viewers;
+        long now = System.currentTimeMillis();
+        List<Viewer> active = new ArrayList<>(current.size());
+        Map<Viewer, Progress> progresses = new HashMap<>();
+        for (Viewer viewer : current) {
+            Dimension dimension = this.dimensions.computeIfAbsent(viewer.level.dimension(), key -> new Dimension(viewer.level));
+            Progress progress = this.progressOf(viewer);
+            if (dimension.builder == null || now < progress.pausedUntil) {
                 continue;
             }
-            dimension.ringIndex++;
+            this.refillTokens(viewer, progress, now);
+            active.add(viewer);
+            progresses.put(viewer, progress);
+        }
+
+        // Workers usually free one slot at a time: start with a different player each time, or the first one in the
+        // list would take every free slot
+        int start = active.isEmpty() ? 0 : Math.floorMod(this.turn++, active.size());
+        int capacity = this.capacity();
+        boolean progressed = true;
+        while (progressed) {
+            progressed = false;
+            for (int i = 0; i < active.size(); i++) {
+                if (this.inFlight.get() >= capacity) {
+                    return true;
+                }
+                Viewer viewer = active.get((start + i) % active.size());
+                if (this.queueNext(viewer, progresses.get(viewer))) {
+                    progressed = true;
+                }
+            }
+        }
+        return this.inFlight.get() >= capacity;
+    }
+
+    private int capacity() {
+        return this.config.threads * 2;
+    }
+
+    // The host gets LODs without the network; everyone else is limited to protect their connection
+    private void refillTokens(Viewer viewer, Progress progress, long now) {
+        if (viewer.host || viewer.player == null) {
+            progress.tokens = Double.MAX_VALUE;
+            return;
+        }
+        double limit = this.config.maxChunksPerSecondPerPlayer;
+        if (progress.lastRefill == 0 || progress.tokens > limit) {
+            progress.tokens = limit;
+        } else {
+            progress.tokens = Math.min(limit, progress.tokens + (now - progress.lastRefill) * limit / 1000.0);
+        }
+        progress.lastRefill = now;
+    }
+
+    /**
+     * Walks square rings around the player, nearest first, to the next chunk they still need.
+     *
+     * @return whether a chunk was queued for them
+     */
+    private boolean queueNext(Viewer viewer, Progress progress) {
+        if (progress.tokens < 1) {
+            return false;
+        }
+        Dimension dimension = this.dimensions.get(viewer.level.dimension());
+        int minRing = this.server.getPlayerList().getViewDistance() + this.config.viewDistanceMargin + 1;
+        if (progress.ring < 0 || progress.rescan
+                || Math.max(Math.abs(viewer.chunkX - progress.centerX), Math.abs(viewer.chunkZ - progress.centerZ)) >= RESCAN_DISTANCE) {
+            progress.centerX = viewer.chunkX;
+            progress.centerZ = viewer.chunkZ;
+            progress.ring = minRing;
+            progress.ringIndex = 0;
+            progress.rescan = false;
+        }
+
+        long radiusSquared = (long) this.config.radius * this.config.radius;
+        while (progress.ring <= this.config.radius) {
+            int ring = progress.ring;
+            int index = progress.ringIndex;
+            progress.shownRing = ring;
+            if (index >= 8 * ring) {
+                progress.ring++;
+                progress.ringIndex = 0;
+                continue;
+            }
+            progress.ringIndex++;
 
             int side = index / (2 * ring);
             int offset = index % (2 * ring);
@@ -322,50 +500,84 @@ final class LodGenerator {
             if ((long) dx * dx + (long) dz * dz > radiusSquared) {
                 continue;
             }
-            int chunkX = dimension.centerX + dx;
-            int chunkZ = dimension.centerZ + dz;
+            int chunkX = progress.centerX + dx;
+            int chunkZ = progress.centerZ + dz;
             long key = pack(chunkX, chunkZ);
-            if (dimension.isDone(key) || dimension.saved.exists(chunkX, chunkZ)) {
+            if (progress.isDone(key) || dimension.saved.exists(chunkX, chunkZ)) {
                 continue;
             }
-            synchronized (dimension.queued) {
-                if (!dimension.queued.add(key)) {
-                    continue;
-                }
+
+            LodSink sink = viewer.host ? dimension.hostSink()
+                    : viewer.player == null ? LodSink.DISCARD : new NetworkSink(viewer.player, viewer.level.dimension());
+            if (sink == null) {
+                progress.ringIndex--;
+                return false;
             }
+            Recipient recipient = new Recipient(sink, progress);
+
+            // Already being built for someone else: add this player to it
+            Task existing = dimension.queued.get(key);
+            if (existing != null) {
+                if (!existing.add(recipient)) {
+                    // Too late to join: look at it again once that delivery is over
+                    progress.ringIndex--;
+                    return false;
+                }
+                progress.tokens--;
+                return true;
+            }
+            Task task = new Task();
+            task.add(recipient);
+            dimension.queued.put(key, task);
+            progress.tokens--;
             this.inFlight.incrementAndGet();
-            this.workers.execute(() -> this.build(dimension, chunkX, chunkZ, key));
+            this.workers.execute(() -> this.build(dimension, task, chunkX, chunkZ, key));
+            return true;
         }
-        return dimension.ring <= this.config.radius;
+        progress.shownRing = progress.ring;
+        return false;
     }
 
-    private int capacity() {
-        return this.config.threads * 2;
-    }
-
-    private void build(Dimension dimension, int chunkX, int chunkZ, long key) {
+    private void build(Dimension dimension, Task task, int chunkX, int chunkZ, long key) {
         try {
             if (!this.running) {
                 return;
             }
-            if (dimension.builder.build(new ChunkPos(chunkX, chunkZ))) {
-                dimension.markDone(key);
+            LodChunk chunk = null;
+            try {
+                chunk = dimension.builder.build(new ChunkPos(chunkX, chunkZ));
                 this.generated.incrementAndGet();
-            } else {
-                // Voxy is not ready (e.g. still loading): pause and search again from the player afterwards
-                this.retryAt = System.currentTimeMillis() + VOXY_RETRY_MILLIS;
-                dimension.rescan = true;
+            } catch (Throwable t) {
+                if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
+                    LodGen.LOGGER.error("Could not build the LOD for chunk {}, {}", chunkX, chunkZ, t);
+                }
             }
-        } catch (Throwable t) {
-            // Skip this chunk instead of failing on it forever
-            dimension.markDone(key);
-            if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
-                LodGen.LOGGER.error("Could not build the LOD for chunk {}, {}", chunkX, chunkZ, t);
+            dimension.queued.remove(key);
+            for (Recipient recipient : task.startDelivery()) {
+                if (chunk == null) {
+                    // Skip this chunk instead of failing on it forever
+                    recipient.progress.markDone(key);
+                    continue;
+                }
+                try {
+                    if (recipient.sink.accept(chunk)) {
+                        recipient.progress.markDone(key);
+                        if (recipient.sink instanceof NetworkSink) {
+                            this.sent.incrementAndGet();
+                        }
+                    } else {
+                        // Not ready (Voxy still loading, player left or switched dimension): try again later
+                        recipient.progress.pausedUntil = System.currentTimeMillis() + RETRY_MILLIS;
+                        recipient.progress.rescan = true;
+                    }
+                } catch (Throwable t) {
+                    recipient.progress.markDone(key);
+                    if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
+                        LodGen.LOGGER.error("Could not deliver the LOD for chunk {}, {}", chunkX, chunkZ, t);
+                    }
+                }
             }
         } finally {
-            synchronized (dimension.queued) {
-                dimension.queued.remove(key);
-            }
             this.inFlight.decrementAndGet();
             synchronized (this.workerFinished) {
                 this.workerFinished.notify();

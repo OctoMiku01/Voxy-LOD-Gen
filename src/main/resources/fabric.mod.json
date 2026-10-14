@@ -12,6 +12,9 @@
 	"entrypoints": {
 		"main": [
 			"io.github.octomiku01.lodgen.LodGen"
+		],
+		"client": [
+			"io.github.octomiku01.lodgen.client.LodGenClient"
 		]
 	},
 	"depends": {
