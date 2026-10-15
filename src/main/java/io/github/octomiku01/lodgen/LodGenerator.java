@@ -119,7 +119,13 @@ final class LodGenerator {
 
         void markDone(long key, boolean features) {
             synchronized (this.done) {
-                (features ? this.done : this.doneTerrain).add(key);
+                if (features) {
+                    // The terrain preview is replaced, so each chunk counts once
+                    this.done.add(key);
+                    this.doneTerrain.remove(key);
+                } else {
+                    this.doneTerrain.add(key);
+                }
             }
             this.dirty = true;
         }
@@ -152,6 +158,8 @@ final class LodGenerator {
                     // Written before features existed: all of them are terrain only
                     readSet(in, this.doneTerrain, first);
                 }
+                // Files from before terrain previews were dropped once replaced
+                this.doneTerrain.removeAll(this.done);
             } catch (IOException e) {
                 LodGen.LOGGER.error("Could not read {}, LODs will be generated again", this.file, e);
                 this.done.clear();
