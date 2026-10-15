@@ -41,14 +41,14 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 
 | Option | Default | |
 |---|---|---|
-| `radius` | 256 | How far LODs reach, in chunks |
-| `featureRadius` | 64 | Up to here LODs get features and structures, further away only terrain |
+| `radius` | 512 | How far LODs reach, in chunks |
+| `featureRadius` | 256 | Up to here LODs get features and structures, further away only terrain |
 | `structures` | true | Structures in LODs |
 | `threads` | a quarter of the cores | Worker threads while playing |
 | `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused |
 | `keepUnderground` | false | Also send what lies deep underground where no daylight reaches (only visible from inside caves) |
 | `tileSize` | 16 | Chunks with features are generated in tiles of this size |
-| `viewDistanceMargin` | 2 | Chunks this close beyond the view distance are left to the game |
+| `viewDistanceMargin` | 0 | Chunks this close beyond the view distance are left to the game |
 | `sendToPlayers` | true | Send LODs to other players |
 | `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
 
