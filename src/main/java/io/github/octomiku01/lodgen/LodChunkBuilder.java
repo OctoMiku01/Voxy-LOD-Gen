@@ -18,7 +18,6 @@ import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.ProtoChunk;
@@ -37,11 +36,10 @@ import org.jetbrains.annotations.Nullable;
  * Generates the terrain of one chunk for an LOD and hands it to Voxy.
  * <p>
  * Only the steps that shape what an LOD shows run here: biomes, noise (base terrain), surface and, for closer LODs,
- * features. Structures, carvers, the light engine, mob spawning and saving are skipped. The chunk never enters the vanilla chunk
+ * features, then light. Structures, carvers, mob spawning and saving are skipped. The chunk never enters the vanilla chunk
  * system, so nothing is loaded, ticked or written to the region files.
  */
 final class LodChunkBuilder {
-    private static final int MAX_SKY_LIGHT = 15;
     private static final ChunkStep FEATURES_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES);
 
     private final ServerLevel level;
@@ -77,7 +75,10 @@ final class LodChunkBuilder {
 
     /** Terrain only: what distant LODs show */
     LodChunk build(ChunkPos pos) {
-        return this.toLodChunk(this.generateTerrain(pos));
+        Long2ObjectOpenHashMap<ProtoChunk> chunks = new Long2ObjectOpenHashMap<>();
+        ProtoChunk chunk = this.generateTerrain(pos);
+        chunks.put(LodGenerator.pack(pos.x(), pos.z()), chunk);
+        return this.toLodChunk(chunk, LodLight.light(this.level, chunks, pos.x(), pos.z(), 1));
     }
 
     /**
@@ -112,10 +113,13 @@ final class LodChunkBuilder {
             checkCancelled(cancelled);
             this.decorate(chunks.get(LodGenerator.pack(minX - 1 + index / side, minZ - 1 + index % side)), holders);
         }
+        // Light reaches 15 blocks at most: the decorated ring is enough for the tile to be lit correctly
+        checkCancelled(cancelled);
+        LodLight light = LodLight.light(this.level, chunks, minX - 1, minZ - 1, side);
         List<LodChunk> tile = new ArrayList<>(size * size);
         for (int x = minX; x < minX + size; x++) {
             for (int z = minZ; z < minZ + size; z++) {
-                tile.add(this.toLodChunk(chunks.get(LodGenerator.pack(x, z))));
+                tile.add(this.toLodChunk(chunks.get(LodGenerator.pack(x, z)), light));
             }
         }
         return tile;
@@ -165,72 +169,30 @@ final class LodChunkBuilder {
     }
 
     /**
-     * Voxy shades LODs with the light stored next to each block, and without light data everything is black.
-     * Instead of running the light engine, sky light is followed straight down each column with vanilla's rule:
-     * blocks that let sky light through (air, plants) keep it, others take away their light dampening, at least one
-     * (leaves and water one level per block, solid blocks all of it). Light spreading sideways is left out.
+     * Keeps the sections from the bottom of the world up to just above the terrain, with their light (see
+     * {@link LodLight}): Voxy shades LODs with it, and without light data everything is black.
      */
-    private LodChunk toLodChunk(ProtoChunk chunk) {
+    private LodChunk toLodChunk(ProtoChunk chunk, LodLight light) {
         LevelChunkSection[] sections = chunk.getSections();
         int minSectionY = chunk.getMinSectionY();
-        int minY = chunk.getMinY();
-        int height = sections.length * 16;
-
-        // Sky light per column and height; columns end where it reaches 0
-        byte[] light = new byte[256 * height];
-        int highest = minY - 1; // highest non-air block
-        for (int column = 0; column < 256; column++) {
-            int x = column & 15;
-            int z = column >> 4;
-            int level = MAX_SKY_LIGHT;
-            for (int y = height - 1; y >= 0 && level > 0; y--) {
-                LevelChunkSection section = sections[y >> 4];
-                if (section.hasOnlyAir()) {
-                    // keep the light through the whole empty section
-                    int bottom = y & ~15;
-                    for (; y >= bottom; y--) {
-                        light[column * height + y] = (byte) level;
-                    }
-                    y = bottom;
-                    continue;
-                }
-                BlockState state = section.getBlockState(x, y & 15, z);
-                if (!state.isAir()) {
-                    highest = Math.max(highest, minY + y);
-                    if (!state.propagatesSkylightDown()) {
-                        level = Math.max(0, level - Math.max(1, state.getLightDampening()));
-                    }
-                }
-                light[column * height + y] = (byte) level;
+        int highest = -1; // index of the highest section with blocks
+        for (int index = sections.length - 1; index >= 0; index--) {
+            if (!sections[index].hasOnlyAir()) {
+                highest = index;
+                break;
             }
         }
-
-        // Everything well above the terrain is empty sky: no need to send it
-        int count = Math.min(sections.length, ((highest + 1) >> 4) - minSectionY + 1);
+        // Everything above is empty sky: no need to send it
+        int count = Math.min(sections.length, highest + 2);
         LevelChunkSection[] kept = new LevelChunkSection[count];
         DataLayer[] skyLight = new DataLayer[count];
+        DataLayer[] blockLight = new DataLayer[count];
+        ChunkPos pos = chunk.getPos();
         for (int index = 0; index < count; index++) {
             kept[index] = sections[index];
-            skyLight[index] = (minSectionY + index) << 4 > highest ? LodChunk.FULL_SKY_LIGHT : skyLight(light, height, index);
+            skyLight[index] = light.skyLight(pos, minSectionY + index);
+            blockLight[index] = light.blockLight(pos, minSectionY + index);
         }
-        ChunkPos pos = chunk.getPos();
-        return new LodChunk(pos.x(), pos.z(), minSectionY, kept, skyLight);
-    }
-
-    private static @Nullable DataLayer skyLight(byte[] light, int height, int sectionIndex) {
-        DataLayer layer = null;
-        for (int column = 0; column < 256; column++) {
-            for (int y = 0; y < 16; y++) {
-                int level = light[column * height + sectionIndex * 16 + y];
-                if (level == 0) {
-                    continue;
-                }
-                if (layer == null) {
-                    layer = new DataLayer();
-                }
-                layer.set(column & 15, y, column >> 4, level);
-            }
-        }
-        return layer;
+        return new LodChunk(pos.x(), pos.z(), minSectionY, kept, skyLight, blockLight);
     }
 }

@@ -152,7 +152,7 @@ final class LodCompare {
 
     private static Int2ObjectOpenHashMap<LevelChunkSection> sectionsOf(LodChunk chunk) {
         Int2ObjectOpenHashMap<LevelChunkSection> sections = new Int2ObjectOpenHashMap<>();
-        chunk.forEachSection((sectionY, section, skyLight) -> sections.put(sectionY, section));
+        chunk.forEachSection((sectionY, section, skyLight, blockLight) -> sections.put(sectionY, section));
         return sections;
     }
 

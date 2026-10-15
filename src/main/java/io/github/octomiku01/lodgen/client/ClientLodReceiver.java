@@ -60,8 +60,8 @@ final class ClientLodReceiver {
             return false;
         }
         boolean[] accepted = {true};
-        LodChunk.decode(payload.data(), level.palettedContainerFactory(), (sectionY, section, skyLight) -> {
-            if (accepted[0] && !VoxelIngestService.rawIngest(world, section, payload.x(), sectionY, payload.z(), null, skyLight)) {
+        LodChunk.decode(payload.data(), level.palettedContainerFactory(), (sectionY, section, skyLight, blockLight) -> {
+            if (accepted[0] && !VoxelIngestService.rawIngest(world, section, payload.x(), sectionY, payload.z(), blockLight, skyLight)) {
                 accepted[0] = false;
             }
         });

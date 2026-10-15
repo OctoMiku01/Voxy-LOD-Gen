@@ -24,8 +24,8 @@ final class VoxySink implements LodSink {
     @Override
     public boolean accept(LodChunk chunk) {
         boolean[] accepted = {true};
-        chunk.forEachSection((sectionY, section, skyLight) -> {
-            if (accepted[0] && !VoxelIngestService.rawIngest(this.world, section, chunk.x, sectionY, chunk.z, null, skyLight)) {
+        chunk.forEachSection((sectionY, section, skyLight, blockLight) -> {
+            if (accepted[0] && !VoxelIngestService.rawIngest(this.world, section, chunk.x, sectionY, chunk.z, blockLight, skyLight)) {
                 accepted[0] = false;
             }
         });

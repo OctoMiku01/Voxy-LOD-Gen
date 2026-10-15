@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * The generated terrain of one chunk, ready for Voxy: its sections from the bottom of the world up to just above the
- * terrain, each with approximated sky light. Built once and shared by everyone who needs it, so it must not change.
+ * terrain, each with its sky and block light. Built once and shared by everyone who needs it, so it must not change.
  */
 public final class LodChunk {
     /** Sky light of a section that lies completely above the terrain. Shared, never modified. */
@@ -20,7 +20,7 @@ public final class LodChunk {
     private static final int LIGHT_DATA = 2;
 
     public interface SectionConsumer {
-        void accept(int sectionY, LevelChunkSection section, @Nullable DataLayer skyLight);
+        void accept(int sectionY, LevelChunkSection section, @Nullable DataLayer skyLight, @Nullable DataLayer blockLight);
     }
 
     final int x;
@@ -28,19 +28,21 @@ public final class LodChunk {
     private final int minSectionY;
     private final LevelChunkSection[] sections;
     private final @Nullable DataLayer[] skyLight;
+    private final @Nullable DataLayer[] blockLight;
     private byte @Nullable [] encoded;
 
-    LodChunk(int x, int z, int minSectionY, LevelChunkSection[] sections, @Nullable DataLayer[] skyLight) {
+    LodChunk(int x, int z, int minSectionY, LevelChunkSection[] sections, @Nullable DataLayer[] skyLight, @Nullable DataLayer[] blockLight) {
         this.x = x;
         this.z = z;
         this.minSectionY = minSectionY;
         this.sections = sections;
         this.skyLight = skyLight;
+        this.blockLight = blockLight;
     }
 
     void forEachSection(SectionConsumer consumer) {
         for (int i = 0; i < this.sections.length; i++) {
-            consumer.accept(this.minSectionY + i, this.sections[i], this.skyLight[i]);
+            consumer.accept(this.minSectionY + i, this.sections[i], this.skyLight[i], this.blockLight[i]);
         }
     }
 
@@ -52,21 +54,37 @@ public final class LodChunk {
             buf.writeVarInt(this.sections.length);
             for (int i = 0; i < this.sections.length; i++) {
                 this.sections[i].write(buf);
-                DataLayer light = this.skyLight[i];
-                if (light == null) {
-                    buf.writeByte(LIGHT_NONE);
-                } else if (light == FULL_SKY_LIGHT) {
-                    buf.writeByte(LIGHT_FULL);
-                } else {
-                    buf.writeByte(LIGHT_DATA);
-                    buf.writeBytes(light.getData());
-                }
+                writeLight(buf, this.skyLight[i]);
+                writeLight(buf, this.blockLight[i]);
             }
             this.encoded = new byte[buf.readableBytes()];
             buf.readBytes(this.encoded);
             buf.release();
         }
         return this.encoded;
+    }
+
+    private static void writeLight(FriendlyByteBuf buf, @Nullable DataLayer light) {
+        if (light == null) {
+            buf.writeByte(LIGHT_NONE);
+        } else if (light == FULL_SKY_LIGHT) {
+            buf.writeByte(LIGHT_FULL);
+        } else {
+            buf.writeByte(LIGHT_DATA);
+            buf.writeBytes(light.getData());
+        }
+    }
+
+    private static @Nullable DataLayer readLight(FriendlyByteBuf buf) {
+        return switch (buf.readByte()) {
+            case LIGHT_FULL -> FULL_SKY_LIGHT;
+            case LIGHT_DATA -> {
+                byte[] bytes = new byte[DataLayer.SIZE];
+                buf.readBytes(bytes);
+                yield new DataLayer(bytes);
+            }
+            default -> null;
+        };
     }
 
     /** Reads {@link #encoded()} back, on the receiving client. */
@@ -77,16 +95,9 @@ public final class LodChunk {
         for (int i = 0; i < count; i++) {
             LevelChunkSection section = new LevelChunkSection(containers);
             section.read(buf);
-            DataLayer light = switch (buf.readByte()) {
-                case LIGHT_FULL -> FULL_SKY_LIGHT;
-                case LIGHT_DATA -> {
-                    byte[] bytes = new byte[DataLayer.SIZE];
-                    buf.readBytes(bytes);
-                    yield new DataLayer(bytes);
-                }
-                default -> null;
-            };
-            consumer.accept(minSectionY + i, section, light);
+            DataLayer skyLight = readLight(buf);
+            DataLayer blockLight = readLight(buf);
+            consumer.accept(minSectionY + i, section, skyLight, blockLight);
         }
     }
 }
