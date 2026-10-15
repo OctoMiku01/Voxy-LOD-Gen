@@ -178,8 +178,16 @@ final class LodChunkBuilder {
     private static LevelChunkSection[] copy(LevelChunkSection[] sections) {
         LevelChunkSection[] copy = new LevelChunkSection[sections.length];
         for (int i = 0; i < sections.length; i++) {
-            copy[i] = sections[i].copy();
+            copy[i] = copy(sections[i]);
         }
+        return copy;
+    }
+
+    private static LevelChunkSection copy(LevelChunkSection section) {
+        LevelChunkSection copy = section.copy();
+        // Mods keep their own data per section (Lithium: which blocks tick randomly) and only set it up when a section
+        // is created normally or recounted, not when it is copied; without it, placing blocks crashes
+        copy.recalcBlockCounts();
         return copy;
     }
 
@@ -188,7 +196,7 @@ final class LodChunkBuilder {
         ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
         LevelChunkSection[] sections = chunk.getSections();
         for (int i = 0; i < sections.length; i++) {
-            sections[i] = terrain[i].copy();
+            sections[i] = copy(terrain[i]);
         }
         chunk.setPersistedStatus(ChunkStatus.CARVERS);
         return chunk;
