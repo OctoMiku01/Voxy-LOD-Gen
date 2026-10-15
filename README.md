@@ -65,6 +65,12 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 
 Progress is stored per player and dimension in `<world>/lodgen/players/`.
 
+## AI disclaimer
+
+This mod was written with the help of AI: most of the code was written by Claude (Anthropic), directed, reviewed
+and tested in game by the author. It has been tested, but not on every setup or mod combination. Back up your
+worlds, and please report problems as an issue.
+
 ## Building
 
 Voxy is not published to a maven repository and may not be redistributed, so the build compiles against a local
