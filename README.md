@@ -67,8 +67,8 @@ Progress is stored per player and dimension in `<world>/lodgen/players/`.
 
 ## AI disclaimer
 
-This mod was written with the help of AI: most of the code was written by Claude (Anthropic), directed, reviewed
-and tested in game by the author. It has been tested, but not on every setup or mod combination. Back up your
+The code of this mod was written by AI (Claude, by Anthropic). The author directs what it does and tests it in game,
+but does not review the code itself. It has been tested, but not on every setup or mod combination. Back up your
 worlds, and please report problems as an issue.
 
 ## Building
