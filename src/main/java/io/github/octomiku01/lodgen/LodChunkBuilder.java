@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
 import net.minecraft.server.level.GenerationChunkHolder;
@@ -16,8 +17,10 @@ import net.minecraft.util.StaticCache2D;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeGenerationSettings;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.ProtoChunk;
@@ -35,11 +38,13 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Generates the terrain of one chunk for an LOD and hands it to Voxy.
  * <p>
- * Only the steps that shape what an LOD shows run here: biomes, noise (base terrain), surface and, for closer LODs,
- * features and structures, then light. Carvers, mob spawning and saving are skipped. The chunk never enters the vanilla chunk
+ * Only the steps that shape what an LOD shows run here: biomes, noise (base terrain), surface, carvers (caves and
+ * ravines, so their openings show from afar) and, for closer LODs,
+ * features and structures, then light. Mob spawning and saving are skipped. The chunk never enters the vanilla chunk
  * system, so nothing is loaded, ticked or written to the region files.
  */
 final class LodChunkBuilder {
+    private static final ChunkStep CARVERS_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.CARVERS);
     private static final ChunkStep FEATURES_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES);
 
     private final ServerLevel level;
@@ -50,6 +55,7 @@ final class LodChunkBuilder {
     private final WorldGenerationContext context;
     private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
+    private final CarverSource carverSource;
 
     private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, boolean structures) {
         this.level = level;
@@ -61,6 +67,7 @@ final class LodChunkBuilder {
         // Surface rules only use this to skip rules for biomes that cannot occur; a superset is always correct
         this.possibleBiomes = this.biomeSource.possibleBiomes();
         this.biomeZoomSeed = BiomeManager.obfuscateSeed(level.getSeed());
+        this.carverSource = new CarverSource(level);
     }
 
     /**
@@ -105,7 +112,6 @@ final class LodChunkBuilder {
                 chunks.put(LodGenerator.pack(x, z), this.generateTerrain(new ChunkPos(x, z)));
             }
         }
-        // The chunks skip the carvers, but count as ready for features like in vanilla
         Long2ObjectOpenHashMap<GenerationChunkHolder> holders = new Long2ObjectOpenHashMap<>(chunks.size());
         chunks.forEach((key, chunk) -> holders.put((long) key, new LodChunkHolder(chunk, ChunkStatus.FEATURES)));
         int side = size + 2;
@@ -155,7 +161,50 @@ final class LodChunkBuilder {
         chunk.setPersistedStatus(ChunkStatus.NOISE);
         this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, this.biomeManager(chunk), Blender.empty(), this.possibleBiomes);
         chunk.setPersistedStatus(ChunkStatus.SURFACE);
+        this.carve(chunk);
+        chunk.setPersistedStatus(ChunkStatus.CARVERS);
         return chunk;
+    }
+
+    /**
+     * Like vanilla's carvers step. Caves and ravines start up to 8 chunks away, and the carvers only ask those chunks
+     * for their biome: {@link CarverRegion} answers that without needing the chunks themselves. They only write to
+     * this chunk.
+     */
+    private void carve(ProtoChunk chunk) {
+        ChunkPos pos = chunk.getPos();
+        StaticCache2D<GenerationChunkHolder> self = StaticCache2D.create(pos.x(), pos.z(), 0, (x, z) -> new LodChunkHolder(chunk, ChunkStatus.SURFACE));
+        WorldGenRegion region = new CarverRegion(this.level, self, chunk, this.carverSource);
+        this.generator.applyCarvers(region, this.level.getSeed(), this.randomState, this.biomeManager(chunk), this.structures, chunk);
+    }
+
+    private static final class CarverRegion extends WorldGenRegion {
+        private final ProtoChunk center;
+        private final CarverSource source;
+
+        CarverRegion(ServerLevel level, StaticCache2D<GenerationChunkHolder> cache, ProtoChunk center, CarverSource source) {
+            super(level, cache, CARVERS_STEP, center);
+            this.center = center;
+            this.source = source;
+        }
+
+        @Override
+        public ChunkAccess getChunk(int x, int z) {
+            ChunkPos pos = this.center.getPos();
+            return x == pos.x() && z == pos.z() ? this.center : this.source;
+        }
+    }
+
+    /** Stands in for the chunks where caves start: computes their carver biome each time instead of remembering it */
+    private static final class CarverSource extends ProtoChunk {
+        CarverSource(ServerLevel level) {
+            super(ChunkPos.ZERO, UpgradeData.EMPTY, level, level.palettedContainerFactory(), null);
+        }
+
+        @Override
+        public BiomeGenerationSettings carverBiome(Supplier<BiomeGenerationSettings> supplier) {
+            return supplier.get();
+        }
     }
 
     // Biome blending at the chunk edge looks at the neighbouring chunks: those biomes are computed directly
