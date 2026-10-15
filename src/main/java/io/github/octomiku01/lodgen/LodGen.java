@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -54,6 +55,21 @@ public class LodGen implements ModInitializer {
                         .then(Commands.literal("reset").executes(LodGen::reset))
                         .then(Commands.literal("compare").executes(LodGen::compare))
         ));
+    }
+
+    /** Applies changed settings: the generator starts over with them, keeping every player's progress */
+    public static void restart(MinecraftServer server) {
+        server.execute(() -> {
+            boolean benchmark = Boolean.getBoolean("lodgen.benchmark");
+            if (generator != null) {
+                generator.stop();
+                generator = null;
+            }
+            LodConfig config = LodConfig.load();
+            if (config.enabled) {
+                generator = new LodGenerator(server, config, benchmark);
+            }
+        });
     }
 
     private static int setPaused(CommandContext<CommandSourceStack> context, boolean paused) {

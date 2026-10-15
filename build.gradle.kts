@@ -22,11 +22,19 @@ tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
 }
 
+repositories {
+    maven("https://maven.terraformersmc.com/releases") { content { includeGroup("com.terraformersmc") } }
+    maven("https://maven.shedaniel.me") { content { includeGroup("me.shedaniel.cloth") } }
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
     implementation("net.fabricmc:fabric-loader:${property("loader_version")}")
     implementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_api_version")}")
     compileOnly(files(property("voxy_jar")))
+    // Optional: the settings screen shows up in Mod Menu when both are installed
+    compileOnly("com.terraformersmc:modmenu:${property("modmenu_version")}") { isTransitive = false }
+    compileOnly("me.shedaniel.cloth:cloth-config-fabric:${property("cloth_config_version")}") { isTransitive = false }
 }
 
 tasks.processResources {

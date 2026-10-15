@@ -35,7 +35,9 @@ The host and everyone who receives LODs need the same version.
 
 ## Settings
 
-`config/lodgen.json`, created on first start:
+With [Mod Menu](https://modrinth.com/mod/modmenu) and [Cloth Config](https://modrinth.com/mod/cloth-config)
+installed, the settings can be changed in game (Mods → Voxy LOD Gen → settings); a world you host uses them as soon
+as you save. Otherwise edit `config/lodgen.json`, created on first start:
 
 | Option | Default | |
 |---|---|---|

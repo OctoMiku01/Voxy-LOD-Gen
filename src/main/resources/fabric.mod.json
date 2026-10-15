@@ -15,6 +15,9 @@
 		],
 		"client": [
 			"io.github.octomiku01.lodgen.client.LodGenClient"
+		],
+		"modmenu": [
+			"io.github.octomiku01.lodgen.client.LodModMenu"
 		]
 	},
 	"mixins": [
@@ -28,5 +31,9 @@
 	},
 	"recommends": {
 		"voxy": "*"
+	},
+	"suggests": {
+		"modmenu": "*",
+		"cloth-config": "*"
 	}
 }

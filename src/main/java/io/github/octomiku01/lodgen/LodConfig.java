@@ -44,19 +44,31 @@ final class LodConfig {
                     config = read;
                 }
             }
-            // Write it back so new options show up in the file
-            Files.createDirectories(FILE.getParent());
-            Files.writeString(FILE, GSON.toJson(config), StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException e) {
             LodGen.LOGGER.error("Could not read {}, using the defaults", FILE, e);
         }
-        config.radius = Math.max(1, config.radius);
-        config.threads = Math.max(1, config.threads);
-        config.threadsWhilePaused = Math.max(1, config.threadsWhilePaused);
-        config.viewDistanceMargin = Math.max(0, config.viewDistanceMargin);
-        config.featureRadius = Math.max(0, config.featureRadius);
-        config.tileSize = Math.clamp(config.tileSize, 1, 32);
-        config.maxChunksPerSecondPerPlayer = Math.max(1, config.maxChunksPerSecondPerPlayer);
+        config.clamp();
+        // Write it back so new options show up in the file
+        config.save();
         return config;
+    }
+
+    void save() {
+        try {
+            Files.createDirectories(FILE.getParent());
+            Files.writeString(FILE, GSON.toJson(this), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            LodGen.LOGGER.error("Could not write {}", FILE, e);
+        }
+    }
+
+    private void clamp() {
+        this.radius = Math.max(1, this.radius);
+        this.threads = Math.max(1, this.threads);
+        this.threadsWhilePaused = Math.max(1, this.threadsWhilePaused);
+        this.viewDistanceMargin = Math.max(0, this.viewDistanceMargin);
+        this.featureRadius = Math.max(0, this.featureRadius);
+        this.tileSize = Math.clamp(this.tileSize, 1, 32);
+        this.maxChunksPerSecondPerPlayer = Math.max(1, this.maxChunksPerSecondPerPlayer);
     }
 }
