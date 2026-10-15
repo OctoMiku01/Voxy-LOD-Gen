@@ -124,7 +124,8 @@ final class LodChunkBuilder {
         }
         Long2ObjectOpenHashMap<ProtoChunk> chunks = new Long2ObjectOpenHashMap<>();
         chunks.put(LodGenerator.pack(pos.x(), pos.z()), chunk);
-        return this.toLodChunk(chunk, LodLight.light(this.level, chunks, pos.x(), pos.z(), 1));
+        // Up to the top of the world: what was built and torn down again must disappear from the LOD too
+        return this.toLodChunk(chunk, LodLight.light(this.level, chunks, pos.x(), pos.z(), 1), true);
     }
 
     /** Terrain only: what distant LODs show */
@@ -302,6 +303,14 @@ final class LodChunkBuilder {
      * {@link LodLight}): Voxy shades LODs with it, and without light data everything is black.
      */
     private LodChunk toLodChunk(ProtoChunk chunk, LodLight light) {
+        return this.toLodChunk(chunk, light, false);
+    }
+
+    /**
+     * @param toTop also send the empty sky above the highest blocks; needed where the chunk may have had more blocks
+     *              before (a real chunk sent again after a change), so the old ones get cleared
+     */
+    private LodChunk toLodChunk(ProtoChunk chunk, LodLight light, boolean toTop) {
         LevelChunkSection[] sections = chunk.getSections();
         int minSectionY = chunk.getMinSectionY();
         int highest = -1; // index of the highest section with blocks
@@ -312,7 +321,7 @@ final class LodChunkBuilder {
             }
         }
         // Everything above is empty sky: no need to send it
-        int end = Math.min(sections.length, highest + 2);
+        int end = toTop ? sections.length : Math.min(sections.length, highest + 2);
         ChunkPos pos = chunk.getPos();
         // Deep underground, out of sight from the sky (see LodLight.findVisible), only shows from inside caves: no
         // need to send it either.
