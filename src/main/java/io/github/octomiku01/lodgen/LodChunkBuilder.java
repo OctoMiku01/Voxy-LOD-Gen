@@ -286,7 +286,7 @@ final class LodChunkBuilder {
         // Everything above is empty sky: no need to send it
         int end = Math.min(sections.length, highest + 2);
         ChunkPos pos = chunk.getPos();
-        // Deep underground, below the ground and where no daylight reaches, can only be seen from inside caves: no
+        // Deep underground, out of sight from the sky (see LodLight.findVisible), only shows from inside caves: no
         // need to send it either.
         // The neighbours count too where they are known, a ravine next door shows this chunk's side; one more section
         // stays as the floor.

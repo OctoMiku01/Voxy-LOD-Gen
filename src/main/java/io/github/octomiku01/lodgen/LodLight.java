@@ -21,9 +21,11 @@ import org.jetbrains.annotations.Nullable;
  */
 final class LodLight {
     private static final int MAX_LEVEL = 15;
+    /** How far around overhangs (floating islands, cliffs) and into caves the ground counts as visible, in blocks */
+    private static final int VISIBLE_REACH = 63;
     private static final int[][] DIRECTIONS = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     /** Large arrays, reused by each worker thread for its next build */
-    private static final ThreadLocal<byte[][]> BUFFERS = ThreadLocal.withInitial(() -> new byte[][]{new byte[0], new byte[0]});
+    private static final ThreadLocal<byte[][]> BUFFERS = ThreadLocal.withInitial(() -> new byte[][]{new byte[0], new byte[0], new byte[0]});
 
     private final int minX;
     private final int minZ;
@@ -34,6 +36,8 @@ final class LodLight {
     /** Low 4 bits: sky light; high 4 bits: light dampening of the block */
     private final byte[] sky;
     private final byte[] block;
+    /** Cells that can be seen from the sky: connected to it through air and water, see {@link #findVisible} */
+    private final byte[] visible;
 
     private LodLight(int minX, int minZ, int size, int height, int minSectionY, boolean hasSky) {
         this.minX = minX;
@@ -47,11 +51,14 @@ final class LodLight {
         if (buffers[0].length < cells) {
             buffers[0] = new byte[cells];
             buffers[1] = new byte[cells];
+            buffers[2] = new byte[cells];
         }
         this.sky = buffers[0];
         this.block = buffers[1];
+        this.visible = buffers[2];
         Arrays.fill(this.sky, 0, cells, (byte) 0);
         Arrays.fill(this.block, 0, cells, (byte) 0);
+        Arrays.fill(this.visible, 0, cells, (byte) 0);
     }
 
     /**
@@ -80,6 +87,7 @@ final class LodLight {
         if (light.hasSky) {
             light.addSkySources(queue);
             light.spread(light.sky, true, queue);
+            light.findVisible(level.getSeaLevel() - light.minSectionY * 16);
         }
         return light;
     }
@@ -205,8 +213,80 @@ final class LodLight {
     }
 
     /**
-     * The lowest section of a chunk that can be seen from above ground: down to the first opaque block of each
-     * column (through water, however deep), and everything daylight reaches (cave openings, ravines). Without sky
+     * Marks what can be seen from the sky: the open columns down to the first opaque block (through water, however
+     * deep), and from there sideways and down through air and water for {@link #VISIBLE_REACH} blocks, under
+     * floating islands, overhangs and into cave openings. Deeper inside caves stays hidden.
+     * <p>
+     * The area ends somewhere, and what lies beyond is unknown: air at its sides above sea level counts as open too,
+     * so a chunk built on its own below a floating island larger than itself still keeps the ground under it.
+     */
+    private void findVisible(int seaLevel) {
+        IntArrayList queue = new IntArrayList();
+        int[] bottom = new int[this.width * this.width];
+        for (int z = 0; z < this.width; z++) {
+            for (int x = 0; x < this.width; x++) {
+                int y = this.height - 1;
+                for (; y >= 0; y--) {
+                    int index = this.index(x, y, z);
+                    if (this.dampening(index) >= MAX_LEVEL) {
+                        break;
+                    }
+                    this.visible[index] = VISIBLE_REACH;
+                }
+                bottom[z * this.width + x] = y + 1;
+                if (x == 0 || z == 0 || x == this.width - 1 || z == this.width - 1) {
+                    for (int side = Math.max(0, seaLevel); side <= y; side++) {
+                        int index = this.index(x, side, z);
+                        if (this.dampening(index) < MAX_LEVEL) {
+                            this.visible[index] = VISIBLE_REACH;
+                            queue.add(index);
+                        }
+                    }
+                }
+            }
+        }
+        // Like the sky light sources: only the edges of the open columns need to spread
+        for (int z = 0; z < this.width; z++) {
+            for (int x = 0; x < this.width; x++) {
+                int from = bottom[z * this.width + x];
+                int to = from + 1;
+                if (x > 0) to = Math.max(to, bottom[z * this.width + x - 1]);
+                if (x < this.width - 1) to = Math.max(to, bottom[z * this.width + x + 1]);
+                if (z > 0) to = Math.max(to, bottom[(z - 1) * this.width + x]);
+                if (z < this.width - 1) to = Math.max(to, bottom[(z + 1) * this.width + x]);
+                for (int y = from; y < Math.min(to, this.height); y++) {
+                    queue.add(this.index(x, y, z));
+                }
+            }
+        }
+        // Breadth first: every step costs one, so the first visit is the closest
+        for (int i = 0; i < queue.size(); i++) {
+            int index = queue.getInt(i);
+            int reach = this.visible[index];
+            if (reach <= 1) {
+                continue;
+            }
+            int x = index % this.width;
+            int z = (index / this.width) % this.width;
+            int y = index / (this.width * this.width);
+            for (int[] direction : DIRECTIONS) {
+                int nx = x + direction[0];
+                int ny = y + direction[1];
+                int nz = z + direction[2];
+                if (nx < 0 || nz < 0 || ny < 0 || nx >= this.width || nz >= this.width || ny >= this.height) {
+                    continue;
+                }
+                int neighbour = this.index(nx, ny, nz);
+                if (this.visible[neighbour] == 0 && this.dampening(neighbour) < MAX_LEVEL) {
+                    this.visible[neighbour] = (byte) (reach - 1);
+                    queue.add(neighbour);
+                }
+            }
+        }
+    }
+
+    /**
+     * The lowest section of a chunk with anything that can be seen from the sky ({@link #findVisible}). Without sky
      * (the Nether): the bottom of the world. Outside the lit area nothing is known: {@link Integer#MAX_VALUE}.
      */
     int lowestVisibleSection(int chunkX, int chunkZ) {
@@ -219,26 +299,16 @@ final class LodLight {
         }
         int baseX = (chunkX - this.minX) * 16;
         int baseZ = (chunkZ - this.minZ) * 16;
-        int lowest = this.height;
-        for (int z = 0; z < 16; z++) {
-            for (int x = 0; x < 16; x++) {
-                int y = this.height - 1;
-                while (y > 0 && this.dampening(this.index(baseX + x, y, baseZ + z)) < MAX_LEVEL) {
-                    y--;
-                }
-                lowest = Math.min(lowest, y);
-            }
-        }
-        for (int y = 0; y < lowest; y++) {
+        for (int y = 0; y < this.height; y++) {
             for (int z = 0; z < 16; z++) {
                 for (int x = 0; x < 16; x++) {
-                    if ((this.sky[this.index(baseX + x, y, baseZ + z)] & 15) != 0) {
+                    if (this.visible[this.index(baseX + x, y, baseZ + z)] != 0) {
                         return this.minSectionY + (y >> 4);
                     }
                 }
             }
         }
-        return this.minSectionY + (lowest >> 4);
+        return this.minSectionY + this.height / 16;
     }
 
     /** Sky light of a section; null if no sky reaches it */
