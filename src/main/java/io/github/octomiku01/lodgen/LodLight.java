@@ -205,10 +205,11 @@ final class LodLight {
     }
 
     /**
-     * The lowest section of a chunk that daylight reaches. Without sky (the Nether): the bottom of the world.
-     * Outside the lit area nothing is known: {@link Integer#MAX_VALUE}.
+     * The lowest section of a chunk that can be seen from above ground: down to the first opaque block of each
+     * column (through water, however deep), and everything daylight reaches (cave openings, ravines). Without sky
+     * (the Nether): the bottom of the world. Outside the lit area nothing is known: {@link Integer#MAX_VALUE}.
      */
-    int lowestDaylitSection(int chunkX, int chunkZ) {
+    int lowestVisibleSection(int chunkX, int chunkZ) {
         int size = this.width / 16;
         if (chunkX < this.minX || chunkZ < this.minZ || chunkX >= this.minX + size || chunkZ >= this.minZ + size) {
             return Integer.MAX_VALUE;
@@ -218,7 +219,17 @@ final class LodLight {
         }
         int baseX = (chunkX - this.minX) * 16;
         int baseZ = (chunkZ - this.minZ) * 16;
-        for (int y = 0; y < this.height; y++) {
+        int lowest = this.height;
+        for (int z = 0; z < 16; z++) {
+            for (int x = 0; x < 16; x++) {
+                int y = this.height - 1;
+                while (y > 0 && this.dampening(this.index(baseX + x, y, baseZ + z)) < MAX_LEVEL) {
+                    y--;
+                }
+                lowest = Math.min(lowest, y);
+            }
+        }
+        for (int y = 0; y < lowest; y++) {
             for (int z = 0; z < 16; z++) {
                 for (int x = 0; x < 16; x++) {
                     if ((this.sky[this.index(baseX + x, y, baseZ + z)] & 15) != 0) {
@@ -227,7 +238,7 @@ final class LodLight {
                 }
             }
         }
-        return this.minSectionY + this.height / 16;
+        return this.minSectionY + (lowest >> 4);
     }
 
     /** Sky light of a section; null if no sky reaches it */

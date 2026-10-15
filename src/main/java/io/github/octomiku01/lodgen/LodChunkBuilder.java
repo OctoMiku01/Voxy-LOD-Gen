@@ -286,16 +286,17 @@ final class LodChunkBuilder {
         // Everything above is empty sky: no need to send it
         int end = Math.min(sections.length, highest + 2);
         ChunkPos pos = chunk.getPos();
-        // Deep underground, where no daylight reaches, can only be seen from inside caves: no need to send it either.
+        // Deep underground, below the ground and where no daylight reaches, can only be seen from inside caves: no
+        // need to send it either.
         // The neighbours count too where they are known, a ravine next door shows this chunk's side; one more section
         // stays as the floor.
         int start = 0;
         if (!this.keepUnderground) {
-            int lowest = light.lowestDaylitSection(pos.x(), pos.z());
-            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x() - 1, pos.z()));
-            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x() + 1, pos.z()));
-            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x(), pos.z() - 1));
-            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x(), pos.z() + 1));
+            int lowest = light.lowestVisibleSection(pos.x(), pos.z());
+            lowest = Math.min(lowest, light.lowestVisibleSection(pos.x() - 1, pos.z()));
+            lowest = Math.min(lowest, light.lowestVisibleSection(pos.x() + 1, pos.z()));
+            lowest = Math.min(lowest, light.lowestVisibleSection(pos.x(), pos.z() - 1));
+            lowest = Math.min(lowest, light.lowestVisibleSection(pos.x(), pos.z() + 1));
             start = Math.clamp(lowest - 1 - minSectionY, 0, Math.max(0, end - 1));
         }
         int count = end - start;
