@@ -14,7 +14,7 @@ final class LodConfig {
 
     boolean enabled = true;
     /** How far from the player LODs are generated, in chunks */
-    int radius = 512;
+    int radius = 256;
     /** Worker threads; the default leaves room for the game, rendering and Voxy itself */
     int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 4);
     /** Worker threads while the game is paused (single player menu): it needs no CPU time then */
@@ -22,7 +22,7 @@ final class LodConfig {
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
-    int featureRadius = 256;
+    int featureRadius = 128;
     /** LODs with features also get structures: villages, towers, ruins... Costs some generation speed */
     boolean structures = true;
     /** Chunks with features are generated in tiles of this many chunks per side; larger tiles waste less work at
