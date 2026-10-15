@@ -23,6 +23,9 @@ final class LodConfig {
     boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
     int featureRadius = 128;
+    /** First terrain quickly up to the radius, then the details up to featureRadius, closest first; the terrain stays
+     *  twice as far ahead. Off: each ring is finished with its details before the next one */
+    boolean terrainFirst = true;
     /** LODs with features also get structures: villages, towers, ruins... Costs some generation speed */
     boolean structures = true;
     /** Chunks with features are generated in tiles of this many chunks per side; larger tiles waste less work at

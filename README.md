@@ -43,6 +43,7 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 |---|---|---|
 | `radius` | 256 | How far LODs reach, in chunks |
 | `featureRadius` | 128 | Up to here LODs get features and structures, further away only terrain |
+| `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
 | `threads` | a quarter of the cores | Worker threads while playing |
 | `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused |

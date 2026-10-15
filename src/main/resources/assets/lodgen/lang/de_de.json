@@ -10,6 +10,8 @@
   "config.lodgen.radius.tooltip": "Wie weit die LODs reichen, in Chunks",
   "config.lodgen.featureRadius": "Detail-Reichweite",
   "config.lodgen.featureRadius.tooltip": "Bis zu dieser Entfernung (in Chunks) bekommen LODs Bäume, Pflanzen und Strukturen. Weiter draußen nur Gelände, das geht schneller",
+  "config.lodgen.terrainFirst": "Gelände zuerst",
+  "config.lodgen.terrainFirst.tooltip": "Erst schnell das Gelände bis zur vollen Reichweite, Bäume, Pflanzen und Strukturen folgen danach von innen nach außen. Aus: Jede Entfernung wird mit ihren Details fertig, bevor die nächste kommt",
   "config.lodgen.structures": "Strukturen",
   "config.lodgen.structures.tooltip": "Dörfer, Türme, Ruinen... in den LODs innerhalb der Detail-Reichweite, auch aus Struktur-Mods",
   "config.lodgen.keepUnderground": "Tiefen Untergrund behalten",

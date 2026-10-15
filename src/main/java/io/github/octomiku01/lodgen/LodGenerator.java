@@ -55,6 +55,21 @@ final class LodGenerator {
     private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, float yaw, @Nullable ServerPlayer player) {
     }
 
+    /** A walk through square rings around a player, see {@link #walk} */
+    private static final class Cursor {
+        int ring = -1;
+        int ringIndex;
+        /** Where on the current ring the player looks; the ring is walked outward from there to both sides */
+        int ringStart;
+        volatile int shownRing = -1;
+
+        void start(int ring, float yaw) {
+            this.ring = ring;
+            this.ringIndex = 0;
+            this.ringStart = ringIndexToward(yaw, ring);
+        }
+    }
+
     /**
      * One player's progress in one dimension: which chunks they got with features, and which only as terrain (those
      * are sent again with features once the player comes close enough).
@@ -73,13 +88,12 @@ final class LodGenerator {
         // scheduler thread only
         int centerX;
         int centerZ;
-        int ring = -1;
-        int ringIndex;
-        /** Where on the current ring the player looks; the ring is walked outward from there to both sides */
-        int ringStart;
+        /** Terrain everywhere; in the single pass also the details up to featureRadius */
+        final Cursor terrain = new Cursor();
+        /** The details up to featureRadius, when terrain comes first */
+        final Cursor details = new Cursor();
         double tokens;
         long lastRefill;
-        volatile int shownRing = -1;
 
         Progress(Path file, @Nullable Path legacyFile) {
             this.file = file;
@@ -348,10 +362,12 @@ final class LodGenerator {
                 text.append("; ").append(viewer.level.dimension().identifier()).append(" is not supported");
             } else {
                 Progress progress = this.progressOf(viewer);
-                int ring = progress.shownRing;
+                String rings = ringStatus(progress.terrain.shownRing, this.config.radius);
+                if (this.config.terrainFirst) {
+                    rings = "terrain " + rings + ", details " + ringStatus(progress.details.shownRing, this.config.featureRadius);
+                }
                 text.append(String.format("; %s in %s: %s, %d LOD chunks", viewer.name, viewer.level.dimension().identifier(),
-                        ring < 0 ? "starting" : ring > this.config.radius ? "done" : "ring " + ring + "/" + this.config.radius,
-                        progress.doneCount()));
+                        rings, progress.doneCount()));
             }
         } else if (asking != null) {
             text.append("; you get no LODs (this mod or Voxy is missing on your client)");
@@ -529,6 +545,10 @@ final class LodGenerator {
         progress.lastRefill = now;
     }
 
+    private static String ringStatus(int ring, int limit) {
+        return ring < 0 ? "starting" : ring > limit ? "done" : "ring " + ring + "/" + limit;
+    }
+
     /** The position on a square ring (see {@link #queueNext}) in the direction of the given yaw */
     private static int ringIndexToward(float yaw, int ring) {
         double radians = Math.toRadians(yaw);
@@ -548,8 +568,9 @@ final class LodGenerator {
     }
 
     /**
-     * Walks square rings around the player, nearest first and starting where they look, to the next chunk they still
-     * need.
+     * Decides what a player gets next. In a single pass, the rings around them carry details up to featureRadius and
+     * terrain beyond. With terrainFirst, terrain covers everything quickly first and the details follow: the terrain
+     * stays twice as far ahead, so close details do not wait for the whole radius.
      *
      * @return whether a chunk was queued for them
      */
@@ -557,33 +578,59 @@ final class LodGenerator {
         if (progress.tokens < 1) {
             return false;
         }
-        Dimension dimension = this.dimensions.get(viewer.level.dimension());
         int minRing = this.server.getPlayerList().getViewDistance() + this.config.viewDistanceMargin + 1;
-        if (progress.ring < 0 || progress.rescan
+        if (progress.terrain.ring < 0 || progress.rescan
                 || Math.max(Math.abs(viewer.chunkX - progress.centerX), Math.abs(viewer.chunkZ - progress.centerZ)) >= RESCAN_DISTANCE) {
             progress.centerX = viewer.chunkX;
             progress.centerZ = viewer.chunkZ;
-            progress.ring = minRing;
-            progress.ringIndex = 0;
-            progress.ringStart = ringIndexToward(viewer.yaw, minRing);
+            progress.terrain.start(minRing, viewer.yaw);
+            progress.details.start(minRing, viewer.yaw);
             progress.rescan = false;
         }
+        if (!this.config.terrainFirst) {
+            return this.walk(viewer, progress, progress.terrain, this.config.radius, false);
+        }
+        while (true) {
+            boolean terrainDone = progress.terrain.ring > this.config.radius;
+            boolean detailsDone = progress.details.ring > this.config.featureRadius;
+            if (terrainDone && detailsDone) {
+                return false;
+            }
+            boolean details = terrainDone || !detailsDone && 2 * progress.details.ring <= progress.terrain.ring;
+            Cursor cursor = details ? progress.details : progress.terrain;
+            int limit = details ? this.config.featureRadius : this.config.radius;
+            if (this.walk(viewer, progress, cursor, limit, details)) {
+                return true;
+            }
+            if (cursor.ring <= limit) {
+                // Waiting (send rate, Voxy not ready, a tile being delivered): try again later
+                return false;
+            }
+        }
+    }
 
-        long radiusSquared = (long) this.config.radius * this.config.radius;
-        while (progress.ring <= this.config.radius) {
-            int ring = progress.ring;
-            int index = progress.ringIndex;
-            progress.shownRing = ring;
+    /**
+     * Walks square rings around the player, nearest first and starting where they look, to the next chunk they still
+     * need.
+     *
+     * @param onlyDetails every chunk on this walk gets details; otherwise only up to featureRadius in a single pass
+     * @return whether a chunk was queued for them
+     */
+    private boolean walk(Viewer viewer, Progress progress, Cursor cursor, int limit, boolean onlyDetails) {
+        Dimension dimension = this.dimensions.get(viewer.level.dimension());
+        long radiusSquared = (long) limit * limit;
+        while (cursor.ring <= limit) {
+            int ring = cursor.ring;
+            int index = cursor.ringIndex;
+            cursor.shownRing = ring;
             if (index >= 8 * ring) {
-                progress.ring++;
-                progress.ringIndex = 0;
-                progress.ringStart = ringIndexToward(viewer.yaw, progress.ring);
+                cursor.start(cursor.ring + 1, viewer.yaw);
                 continue;
             }
-            progress.ringIndex++;
+            cursor.ringIndex++;
             // From where the player looks, alternately one step further to each side
             int step = (index + 1) / 2;
-            index = Math.floorMod(progress.ringStart + (index % 2 == 1 ? step : -step), 8 * ring);
+            index = Math.floorMod(cursor.ringStart + (index % 2 == 1 ? step : -step), 8 * ring);
 
             int side = index / (2 * ring);
             int offset = index % (2 * ring);
@@ -601,7 +648,7 @@ final class LodGenerator {
             int chunkX = progress.centerX + dx;
             int chunkZ = progress.centerZ + dz;
             long key = pack(chunkX, chunkZ);
-            boolean features = ring <= this.config.featureRadius;
+            boolean features = onlyDetails || !this.config.terrainFirst && ring <= this.config.featureRadius;
             if (progress.isDone(key, features) || dimension.saved.exists(chunkX, chunkZ)) {
                 continue;
             }
@@ -609,7 +656,7 @@ final class LodGenerator {
             LodSink sink = viewer.host ? dimension.hostSink()
                     : viewer.player == null ? LodSink.DISCARD : new NetworkSink(viewer.player, viewer.level.dimension());
             if (sink == null) {
-                progress.ringIndex--;
+                cursor.ringIndex--;
                 return false;
             }
             Recipient recipient = new Recipient(sink, progress);
@@ -647,12 +694,12 @@ final class LodGenerator {
                 }
                 case TOO_LATE -> {
                     // Look at it again once that delivery is over
-                    progress.ringIndex--;
+                    cursor.ringIndex--;
                     return false;
                 }
             }
         }
-        progress.shownRing = progress.ring;
+        cursor.shownRing = cursor.ring;
         return false;
     }
 

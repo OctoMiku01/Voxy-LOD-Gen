@@ -10,6 +10,8 @@
   "config.lodgen.radius.tooltip": "How far LODs reach, in chunks",
   "config.lodgen.featureRadius": "Detail radius",
   "config.lodgen.featureRadius.tooltip": "Up to this distance (in chunks) LODs get trees, plants and structures. Further away only terrain, which is faster",
+  "config.lodgen.terrainFirst": "Terrain first",
+  "config.lodgen.terrainFirst.tooltip": "First terrain quickly up to the full radius, then trees, plants and structures follow, closest first. Off: each distance is finished with its details before the next one",
   "config.lodgen.structures": "Structures",
   "config.lodgen.structures.tooltip": "Villages, towers, ruins... in the LODs within the detail radius, also from structure mods",
   "config.lodgen.keepUnderground": "Keep deep underground",
