@@ -237,7 +237,7 @@ final class LodGenerator {
 
         Dimension(ServerLevel level) {
             this.level = level;
-            this.builder = LodChunkBuilder.create(level);
+            this.builder = LodChunkBuilder.create(level, LodGenerator.this.config.structures);
             Path worldRoot = LodGenerator.this.server.getWorldPath(LevelResource.ROOT);
             this.saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), worldRoot).resolve("region"));
             if (this.builder == null) {

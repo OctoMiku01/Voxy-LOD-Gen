@@ -39,7 +39,7 @@ final class LodCompare {
     static void start(CommandSourceStack source, ServerPlayer player) {
         MinecraftServer server = source.getServer();
         ServerLevel level = (ServerLevel) player.level();
-        LodChunkBuilder builder = LodChunkBuilder.create(level);
+        LodChunkBuilder builder = LodChunkBuilder.create(level, true);
         if (builder == null) {
             reply(source, "this dimension is not supported");
             return;

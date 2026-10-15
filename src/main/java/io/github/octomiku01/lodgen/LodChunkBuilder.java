@@ -36,7 +36,7 @@ import org.jetbrains.annotations.Nullable;
  * Generates the terrain of one chunk for an LOD and hands it to Voxy.
  * <p>
  * Only the steps that shape what an LOD shows run here: biomes, noise (base terrain), surface and, for closer LODs,
- * features, then light. Structures, carvers, mob spawning and saving are skipped. The chunk never enters the vanilla chunk
+ * features and structures, then light. Carvers, mob spawning and saving are skipped. The chunk never enters the vanilla chunk
  * system, so nothing is loaded, ticked or written to the region files.
  */
 final class LodChunkBuilder {
@@ -46,17 +46,17 @@ final class LodChunkBuilder {
     private final NoiseBasedChunkGenerator generator;
     private final BiomeSource biomeSource;
     private final RandomState randomState;
-    private final StructureManager noStructures;
+    private final StructureManager structures;
     private final WorldGenerationContext context;
     private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
 
-    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator) {
+    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, boolean structures) {
         this.level = level;
         this.generator = generator;
         this.biomeSource = generator.getBiomeSource();
         this.randomState = level.getChunkSource().randomState();
-        this.noStructures = new NoStructures(level);
+        this.structures = structures ? new LodStructures(level) : new NoStructures(level);
         this.context = new WorldGenerationContext(generator, level);
         // Surface rules only use this to skip rules for biomes that cannot occur; a superset is always correct
         this.possibleBiomes = this.biomeSource.possibleBiomes();
@@ -64,13 +64,14 @@ final class LodChunkBuilder {
     }
 
     /**
+     * @param structures whether LODs include structures (villages, towers...); they also shape the terrain around them
      * @return null if this dimension cannot be generated (not a noise based generator, e.g. superflat)
      */
-    static @Nullable LodChunkBuilder create(ServerLevel level) {
+    static @Nullable LodChunkBuilder create(ServerLevel level, boolean structures) {
         if (!(level.getChunkSource().getGenerator() instanceof NoiseBasedChunkGenerator generator)) {
             return null;
         }
-        return new LodChunkBuilder(level, generator);
+        return new LodChunkBuilder(level, generator, structures);
     }
 
     /** Terrain only: what distant LODs show */
@@ -140,7 +141,7 @@ final class LodChunkBuilder {
         StaticCache2D<GenerationChunkHolder> neighbours = StaticCache2D.create(pos.x(), pos.z(), FEATURES_STEP.directDependencies().getRadius(),
                 (x, z) -> holders.get(LodGenerator.pack(x, z)));
         WorldGenRegion region = new WorldGenRegion(this.level, neighbours, FEATURES_STEP, chunk);
-        this.generator.applyBiomeDecoration(region, chunk, this.noStructures);
+        this.generator.applyBiomeDecoration(region, chunk, this.structures);
         chunk.setPersistedStatus(ChunkStatus.FEATURES);
     }
 
@@ -148,11 +149,11 @@ final class LodChunkBuilder {
         ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
 
         // Like vanilla, mark each finished step: the chunk refuses e.g. biome lookups before its biomes exist
-        this.generator.createBiomes(this.randomState, Blender.empty(), this.noStructures, chunk).join();
+        this.generator.createBiomes(this.randomState, Blender.empty(), this.structures, chunk).join();
         chunk.setPersistedStatus(ChunkStatus.BIOMES);
-        this.generator.fillFromNoise(Blender.empty(), this.randomState, this.noStructures, chunk).join();
+        this.generator.fillFromNoise(Blender.empty(), this.randomState, this.structures, chunk).join();
         chunk.setPersistedStatus(ChunkStatus.NOISE);
-        this.generator.buildSurface(chunk, this.context, this.randomState, this.noStructures, this.biomeManager(chunk), Blender.empty(), this.possibleBiomes);
+        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, this.biomeManager(chunk), Blender.empty(), this.possibleBiomes);
         chunk.setPersistedStatus(ChunkStatus.SURFACE);
         return chunk;
     }

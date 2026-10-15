@@ -19,6 +19,8 @@ final class LodConfig {
     int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 4);
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
     int featureRadius = 64;
+    /** LODs with features also get structures: villages, towers, ruins... Costs some generation speed */
+    boolean structures = true;
     /** Chunks with features are generated in tiles of this many chunks per side; larger tiles waste less work at
      *  their edges but take more memory */
     int tileSize = 16;

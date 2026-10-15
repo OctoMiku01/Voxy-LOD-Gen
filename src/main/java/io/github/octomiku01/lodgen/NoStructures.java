@@ -18,8 +18,8 @@ import net.minecraft.world.level.levelgen.structure.StructureStart;
  * A structure manager for a world without structures.
  * <p>
  * The vanilla one looks up structure references through {@code level.getChunk(...)}, which would load or generate
- * real chunks around every LOD chunk (noise generation asks it for terrain adaptation around structures). The far
- * LOD tier generates no structures, so every lookup answers "nothing here" without touching the world.
+ * real chunks around every LOD chunk (noise generation asks it for terrain adaptation around structures). With
+ * structures turned off in the config, every lookup answers "nothing here" without touching the world.
  */
 final class NoStructures extends StructureManager {
     NoStructures(ServerLevel level) {
