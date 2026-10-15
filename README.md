@@ -3,32 +3,61 @@
 Generates distant terrain for [Voxy](https://modrinth.com/mod/voxy) LODs without creating or saving real chunks.
 Minecraft 26.2, Fabric.
 
-Only the generation steps that shape what an LOD shows are run, on a separate thread pool and outside the vanilla
-chunk system: biomes, noise and surface, and up to `featureRadius` chunks away also features (trees, flowers,
-lakes...) through vanilla's own features step. Features can reach into neighbouring chunks, so those LODs are built in
-tiles with a margin. Structures, caves, the light engine, mob spawning and saving are skipped; sky light is
-approximated per column. Areas that only got terrain are sent again with features once a player comes close enough. Chunks that already exist on disk are left to the game,
-so LODs of real chunks (with the player's builds) are never overwritten.
+Instead of generating real chunks far away (slow, and they fill up the save), this mod runs the world generation
+steps that shape what an LOD shows on its own thread pool, hands the result to Voxy and throws it away again.
+Nothing is loaded, ticked or written to the region files.
 
-## Who gets LODs
+What the LODs contain:
 
-- The player hosting a single player world (also when opened to LAN or shared with friends): handed to Voxy directly.
-- Every other player whose client has this mod and Voxy: sent over the network, at most
-  `maxChunksPerSecondPerPlayer` chunks per second each (about 20 KiB per chunk before compression).
-- Players without the mod get nothing from it. On a dedicated server the mod only has to be on the server for the
-  generation, and on the clients that should receive LODs.
+- **Terrain** of the dimension's generator, including worldgen mods (tested with Tectonic, Terralith, Biomes O'
+  Plenty, Streams Reflowing, Incendium and Nullscape), in the Overworld, the Nether and the End
+- **Caves and ravines**, so their openings show from afar
+- **Features** up to `featureRadius` chunks away: trees, plants, lakes...
+- **Structures** within the same distance: villages, towers, ruins..., including those of structure mods; the terrain
+  is flattened around them everywhere, like in the real world
+- **Light** spread like vanilla's: shadows under trees and overhangs, dark caves, light around lava and glowstone
 
-A chunk several players need is generated once.
+Trees that overlap differ in places from the real world: which one grows depends on the order chunks are
+generated in, which is different every time even in vanilla.
 
-## Usage
+Chunks that already exist in the world are left to the game, so LODs of real chunks (with your builds) are never
+overwritten. Areas that only got terrain are sent again with features once a player comes close enough.
 
-- `config/lodgen.json`: `radius` (chunks), `featureRadius`, `tileSize`, `threads`, `viewDistanceMargin`,
-  `sendToPlayers`, `maxChunksPerSecondPerPlayer`
-- `/lodgen` shows the progress and speed, `/lodgen pause` / `/lodgen resume`
-- `/lodgen reset` sends your LODs of the current dimension again (e.g. after deleting Voxy's data)
-- Progress is stored per player and dimension in `<world>/lodgen/players/`
+## Installing
 
-Mod id, command, config file and save folder are all `lodgen`.
+- **Single player, and the host when playing with friends** (LAN, Essential...): install it next to Voxy. LODs are
+  handed to Voxy directly.
+- **Friends who join**: install it next to Voxy too, then they get LODs from the host over the network. Without it
+  they simply get none.
+- **Dedicated server**: install it on the server, and on every client that should get LODs.
+
+The host and everyone who receives LODs need the same version.
+
+## Settings
+
+`config/lodgen.json`, created on first start:
+
+| Option | Default | |
+|---|---|---|
+| `radius` | 256 | How far LODs reach, in chunks |
+| `featureRadius` | 64 | Up to here LODs get features and structures, further away only terrain |
+| `structures` | true | Structures in LODs |
+| `threads` | a quarter of the cores | Worker threads while playing |
+| `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused |
+| `keepUnderground` | false | Also send what lies deep underground where no daylight reaches (only visible from inside caves) |
+| `tileSize` | 16 | Chunks with features are generated in tiles of this size |
+| `viewDistanceMargin` | 2 | Chunks this close beyond the view distance are left to the game |
+| `sendToPlayers` | true | Send LODs to other players |
+| `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
+
+## Commands
+
+- `/lodgen` shows the progress and speed
+- `/lodgen pause` / `/lodgen resume`
+- `/lodgen reset` sends your LODs of the current dimension again, e.g. after deleting Voxy's data or updating this mod
+- `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
+
+Progress is stored per player and dimension in `<world>/lodgen/players/`.
 
 ## Building
 
