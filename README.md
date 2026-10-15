@@ -1,5 +1,12 @@
 # Voxy LOD Gen
 
+> [!WARNING]
+> **AI disclaimer:** The code of this mod was written by AI (Claude, by Anthropic). The author directs what it does
+> and tests it in game, but does not review the code itself. It has been tested, but not on every setup or mod
+> combination. Back up your worlds, and please report problems as an issue.
+>
+> This mod is mainly made for private use. You are welcome to try it, but it comes without any promise of support.
+
 Generates distant terrain for [Voxy](https://modrinth.com/mod/voxy) LODs without creating or saving real chunks.
 Minecraft 26.2, Fabric.
 
@@ -64,12 +71,6 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 - `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
 
 Progress is stored per player and dimension in `<world>/lodgen/players/`.
-
-## AI disclaimer
-
-The code of this mod was written by AI (Claude, by Anthropic). The author directs what it does and tests it in game,
-but does not review the code itself. It has been tested, but not on every setup or mod combination. Back up your
-worlds, and please report problems as an issue.
 
 ## Building
 
