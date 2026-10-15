@@ -17,6 +17,11 @@ final class LodConfig {
     int radius = 256;
     /** Worker threads; the default leaves room for the game, rendering and Voxy itself */
     int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 4);
+    /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
+    int featureRadius = 64;
+    /** Chunks with features are generated in tiles of this many chunks per side; larger tiles waste less work at
+     *  their edges but take more memory */
+    int tileSize = 16;
     /** Chunks closer than the view distance plus this margin are left to the game */
     int viewDistanceMargin = 2;
     /** Send LODs to other players whose client has this mod and Voxy */
@@ -42,6 +47,8 @@ final class LodConfig {
         config.radius = Math.max(1, config.radius);
         config.threads = Math.max(1, config.threads);
         config.viewDistanceMargin = Math.max(0, config.viewDistanceMargin);
+        config.featureRadius = Math.max(0, config.featureRadius);
+        config.tileSize = Math.clamp(config.tileSize, 1, 32);
         config.maxChunksPerSecondPerPlayer = Math.max(1, config.maxChunksPerSecondPerPlayer);
         return config;
     }

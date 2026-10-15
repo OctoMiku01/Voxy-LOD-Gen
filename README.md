@@ -3,9 +3,11 @@
 Generates distant terrain for [Voxy](https://modrinth.com/mod/voxy) LODs without creating or saving real chunks.
 Minecraft 26.2, Fabric.
 
-Only the generation steps that shape what a distant LOD shows are run (biomes, noise, surface), on a separate
-thread pool and outside the vanilla chunk system. Structures, caves, features, the light engine, mob spawning and
-saving are skipped; sky light is approximated per column. Chunks that already exist on disk are left to the game,
+Only the generation steps that shape what an LOD shows are run, on a separate thread pool and outside the vanilla
+chunk system: biomes, noise and surface, and up to `featureRadius` chunks away also features (trees, flowers,
+lakes...) through vanilla's own features step. Features can reach into neighbouring chunks, so those LODs are built in
+tiles with a margin. Structures, caves, the light engine, mob spawning and saving are skipped; sky light is
+approximated per column. Areas that only got terrain are sent again with features once a player comes close enough. Chunks that already exist on disk are left to the game,
 so LODs of real chunks (with the player's builds) are never overwritten.
 
 ## Who gets LODs
@@ -20,8 +22,8 @@ A chunk several players need is generated once.
 
 ## Usage
 
-- `config/lodgen.json`: `radius` (chunks), `threads`, `viewDistanceMargin`, `sendToPlayers`,
-  `maxChunksPerSecondPerPlayer`
+- `config/lodgen.json`: `radius` (chunks), `featureRadius`, `tileSize`, `threads`, `viewDistanceMargin`,
+  `sendToPlayers`, `maxChunksPerSecondPerPlayer`
 - `/lodgen` shows the progress and speed, `/lodgen pause` / `/lodgen resume`
 - `/lodgen reset` sends your LODs of the current dimension again (e.g. after deleting Voxy's data)
 - Progress is stored per player and dimension in `<world>/lodgen/players/`

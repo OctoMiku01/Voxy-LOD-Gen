@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "io.github.octomiku01.lodgen.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"mixins": [
+		"GenerationChunkHolderAccessor"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

@@ -52,6 +52,7 @@ public class LodGen implements ModInitializer {
                         .then(Commands.literal("pause").executes(context -> setPaused(context, true)))
                         .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
                         .then(Commands.literal("reset").executes(LodGen::reset))
+                        .then(Commands.literal("compare").executes(LodGen::compare))
         ));
     }
 
@@ -70,6 +71,16 @@ public class LodGen implements ModInitializer {
             return reply(context, "not running");
         }
         return reply(context, generator.reset(player) ? "your LODs in this dimension will be generated again" : "you get no LODs");
+    }
+
+    // Diagnostics: how well the LODs around the player match the real chunks there
+    private static int compare(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) {
+            return reply(context, "only players can compare");
+        }
+        LodCompare.start(context.getSource(), player);
+        return 1;
     }
 
     private static int reply(CommandContext<CommandSourceStack> context, String message) {
