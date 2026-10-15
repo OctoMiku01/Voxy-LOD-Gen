@@ -2,8 +2,11 @@ package io.github.octomiku01.lodgen;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
@@ -44,6 +47,8 @@ import org.jetbrains.annotations.Nullable;
  * system, so nothing is loaded, ticked or written to the region files.
  */
 final class LodChunkBuilder {
+    /** Enough for the edges of the tiles around the one being built, a few hundred MB at most */
+    private static final int MAX_EDGE_TERRAIN = 4096;
     private static final ChunkStep CARVERS_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.CARVERS);
     private static final ChunkStep FEATURES_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES);
 
@@ -56,6 +61,16 @@ final class LodChunkBuilder {
     private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
     private final CarverSource carverSource;
+    /**
+     * Terrain of the chunks along tile edges, before features: neighbouring tiles need the same chunks around their
+     * edge, and terrain is by far the slowest step. Copies, because features change the chunks they run on.
+     */
+    private final Map<Long, LevelChunkSection[]> edgeTerrain = Collections.synchronizedMap(new LinkedHashMap<>(256, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Long, LevelChunkSection[]> eldest) {
+            return this.size() > MAX_EDGE_TERRAIN;
+        }
+    });
 
     private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, boolean structures) {
         this.level = level;
@@ -109,7 +124,13 @@ final class LodChunkBuilder {
         for (int x = minX - 2; x < minX + size + 2; x++) {
             for (int z = minZ - 2; z < minZ + size + 2; z++) {
                 checkCancelled(cancelled);
-                chunks.put(LodGenerator.pack(x, z), this.generateTerrain(new ChunkPos(x, z)));
+                long key = LodGenerator.pack(x, z);
+                LevelChunkSection[] cached = this.edgeTerrain.get(key);
+                ProtoChunk chunk = cached != null ? this.restoreTerrain(new ChunkPos(x, z), cached) : this.generateTerrain(new ChunkPos(x, z));
+                if (cached == null && (x < minX + 2 || x >= minX + size - 2 || z < minZ + 2 || z >= minZ + size - 2)) {
+                    this.edgeTerrain.put(key, copy(chunk.getSections()));
+                }
+                chunks.put(key, chunk);
             }
         }
         Long2ObjectOpenHashMap<GenerationChunkHolder> holders = new Long2ObjectOpenHashMap<>(chunks.size());
@@ -149,6 +170,25 @@ final class LodChunkBuilder {
         WorldGenRegion region = new WorldGenRegion(this.level, neighbours, FEATURES_STEP, chunk);
         this.generator.applyBiomeDecoration(region, chunk, this.structures);
         chunk.setPersistedStatus(ChunkStatus.FEATURES);
+    }
+
+    private static LevelChunkSection[] copy(LevelChunkSection[] sections) {
+        LevelChunkSection[] copy = new LevelChunkSection[sections.length];
+        for (int i = 0; i < sections.length; i++) {
+            copy[i] = sections[i].copy();
+        }
+        return copy;
+    }
+
+    // A chunk at the same point as right after generateTerrain
+    private ProtoChunk restoreTerrain(ChunkPos pos, LevelChunkSection[] terrain) {
+        ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
+        LevelChunkSection[] sections = chunk.getSections();
+        for (int i = 0; i < sections.length; i++) {
+            sections[i] = terrain[i].copy();
+        }
+        chunk.setPersistedStatus(ChunkStatus.CARVERS);
+        return chunk;
     }
 
     private ProtoChunk generateTerrain(ChunkPos pos) {
