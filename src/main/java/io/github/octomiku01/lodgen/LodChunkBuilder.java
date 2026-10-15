@@ -61,6 +61,7 @@ final class LodChunkBuilder {
     private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
     private final CarverSource carverSource;
+    private final boolean keepUnderground;
     /**
      * Terrain of the chunks along tile edges, before features: neighbouring tiles need the same chunks around their
      * edge, and terrain is by far the slowest step. Copies, because features change the chunks they run on.
@@ -72,7 +73,7 @@ final class LodChunkBuilder {
         }
     });
 
-    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, boolean structures) {
+    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, boolean structures, boolean keepUnderground) {
         this.level = level;
         this.generator = generator;
         this.biomeSource = generator.getBiomeSource();
@@ -83,17 +84,19 @@ final class LodChunkBuilder {
         this.possibleBiomes = this.biomeSource.possibleBiomes();
         this.biomeZoomSeed = BiomeManager.obfuscateSeed(level.getSeed());
         this.carverSource = new CarverSource(level);
+        this.keepUnderground = keepUnderground;
     }
 
     /**
      * @param structures whether LODs include structures (villages, towers...); they also shape the terrain around them
+     * @param keepUnderground also keep the sections deep underground that no daylight reaches
      * @return null if this dimension cannot be generated (not a noise based generator, e.g. superflat)
      */
-    static @Nullable LodChunkBuilder create(ServerLevel level, boolean structures) {
+    static @Nullable LodChunkBuilder create(ServerLevel level, boolean structures, boolean keepUnderground) {
         if (!(level.getChunkSource().getGenerator() instanceof NoiseBasedChunkGenerator generator)) {
             return null;
         }
-        return new LodChunkBuilder(level, generator, structures);
+        return new LodChunkBuilder(level, generator, structures, keepUnderground);
     }
 
     /** Terrain only: what distant LODs show */
@@ -273,16 +276,30 @@ final class LodChunkBuilder {
             }
         }
         // Everything above is empty sky: no need to send it
-        int count = Math.min(sections.length, highest + 2);
+        int end = Math.min(sections.length, highest + 2);
+        ChunkPos pos = chunk.getPos();
+        // Deep underground, where no daylight reaches, can only be seen from inside caves: no need to send it either.
+        // The neighbours count too where they are known, a ravine next door shows this chunk's side; one more section
+        // stays as the floor.
+        int start = 0;
+        if (!this.keepUnderground) {
+            int lowest = light.lowestDaylitSection(pos.x(), pos.z());
+            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x() - 1, pos.z()));
+            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x() + 1, pos.z()));
+            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x(), pos.z() - 1));
+            lowest = Math.min(lowest, light.lowestDaylitSection(pos.x(), pos.z() + 1));
+            start = Math.clamp(lowest - 1 - minSectionY, 0, Math.max(0, end - 1));
+        }
+        int count = end - start;
         LevelChunkSection[] kept = new LevelChunkSection[count];
         DataLayer[] skyLight = new DataLayer[count];
         DataLayer[] blockLight = new DataLayer[count];
-        ChunkPos pos = chunk.getPos();
-        for (int index = 0; index < count; index++) {
-            kept[index] = sections[index];
-            skyLight[index] = light.skyLight(pos, minSectionY + index);
-            blockLight[index] = light.blockLight(pos, minSectionY + index);
+        for (int i = 0; i < count; i++) {
+            int sectionY = minSectionY + start + i;
+            kept[i] = sections[start + i];
+            skyLight[i] = light.skyLight(pos, sectionY);
+            blockLight[i] = light.blockLight(pos, sectionY);
         }
-        return new LodChunk(pos.x(), pos.z(), minSectionY, kept, skyLight, blockLight);
+        return new LodChunk(pos.x(), pos.z(), minSectionY + start, kept, skyLight, blockLight);
     }
 }

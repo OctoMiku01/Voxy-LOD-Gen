@@ -16,8 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -52,7 +52,7 @@ final class LodGenerator {
     private static final UUID NO_PLAYER = new UUID(0, 0);
 
     /** Where a player who gets LODs is; published by the server thread */
-    private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, @Nullable ServerPlayer player) {
+    private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, float yaw, @Nullable ServerPlayer player) {
     }
 
     /**
@@ -75,6 +75,8 @@ final class LodGenerator {
         int centerZ;
         int ring = -1;
         int ringIndex;
+        /** Where on the current ring the player looks; the ring is walked outward from there to both sides */
+        int ringStart;
         double tokens;
         long lastRefill;
         volatile int shownRing = -1;
@@ -237,7 +239,7 @@ final class LodGenerator {
 
         Dimension(ServerLevel level) {
             this.level = level;
-            this.builder = LodChunkBuilder.create(level, LodGenerator.this.config.structures);
+            this.builder = LodChunkBuilder.create(level, LodGenerator.this.config.structures, LodGenerator.this.config.keepUnderground);
             Path worldRoot = LodGenerator.this.server.getWorldPath(LevelResource.ROOT);
             this.saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), worldRoot).resolve("region"));
             if (this.builder == null) {
@@ -259,7 +261,7 @@ final class LodGenerator {
     private final boolean benchmark;
     /** Voxy runs in this game instance, so the host gets LODs without the network */
     private final boolean localVoxy;
-    private final ExecutorService workers;
+    private final ThreadPoolExecutor workers;
     private final Thread scheduler;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
@@ -284,7 +286,7 @@ final class LodGenerator {
         this.benchmark = benchmark;
         this.localVoxy = !server.isDedicatedServer() && FabricLoader.getInstance().isModLoaded("voxy");
         AtomicInteger threadNumber = new AtomicInteger();
-        this.workers = Executors.newFixedThreadPool(config.threads, runnable -> {
+        this.workers = new ThreadPoolExecutor(config.threads, config.threads, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), runnable -> {
             Thread thread = new Thread(runnable, "LodGen-Worker-" + threadNumber.incrementAndGet());
             thread.setDaemon(true);
             thread.setPriority(Thread.MIN_PRIORITY);
@@ -309,10 +311,10 @@ final class LodGenerator {
                 continue;
             }
             ChunkPos pos = player.chunkPosition();
-            current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player));
+            current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player.getYRot(), player));
         }
         if (current.isEmpty() && this.benchmark) {
-            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, null));
+            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, null));
         }
         this.viewers = List.copyOf(current);
     }
@@ -335,7 +337,7 @@ final class LodGenerator {
         List<Viewer> current = this.viewers;
         StringBuilder text = new StringBuilder(this.paused ? "[paused] " : "");
         text.append(String.format("%.1f chunks/s, %d in progress, %d threads, %d player(s), %d sent over the network",
-                this.rate, this.inFlight.get(), this.config.threads, current.size(), this.sent.get()));
+                this.rate, this.inFlight.get(), this.threads(), current.size(), this.sent.get()));
         Viewer viewer = asking == null ? null : this.viewerOf(asking.getUUID());
         if (viewer == null && current.size() == 1) {
             viewer = current.getFirst();
@@ -406,6 +408,7 @@ final class LodGenerator {
         while (this.running) {
             try {
                 boolean full = false;
+                this.adjustThreads();
                 if (!this.paused) {
                     full = this.fillQueue();
                 }
@@ -491,7 +494,24 @@ final class LodGenerator {
     }
 
     private int capacity() {
-        return this.config.threads * 2;
+        return this.threads() * 2;
+    }
+
+    // While the game is paused it needs no CPU time, so more workers can run
+    private int threads() {
+        return this.server.isPaused() ? Math.max(this.config.threads, this.config.threadsWhilePaused) : this.config.threads;
+    }
+
+    private void adjustThreads() {
+        int wanted = this.threads();
+        if (wanted > this.workers.getMaximumPoolSize()) {
+            this.workers.setMaximumPoolSize(wanted);
+            this.workers.setCorePoolSize(wanted);
+        } else if (wanted < this.workers.getMaximumPoolSize()) {
+            // Extra workers finish their chunk, then stop
+            this.workers.setCorePoolSize(wanted);
+            this.workers.setMaximumPoolSize(wanted);
+        }
     }
 
     // The host gets LODs without the network; everyone else is limited to protect their connection
@@ -509,8 +529,27 @@ final class LodGenerator {
         progress.lastRefill = now;
     }
 
+    /** The position on a square ring (see {@link #queueNext}) in the direction of the given yaw */
+    private static int ringIndexToward(float yaw, int ring) {
+        double radians = Math.toRadians(yaw);
+        double x = -Math.sin(radians);
+        double z = Math.cos(radians);
+        double scale = ring / Math.max(Math.abs(x), Math.abs(z));
+        int dx = Math.clamp(Math.round(x * scale), -ring, ring);
+        int dz = Math.clamp(Math.round(z * scale), -ring, ring);
+        if (dz == -ring && dx < ring) {
+            return dx + ring; // side 0
+        } else if (dx == ring && dz < ring) {
+            return 2 * ring + dz + ring; // side 1
+        } else if (dz == ring && dx > -ring) {
+            return 4 * ring + ring - dx; // side 2
+        }
+        return 6 * ring + ring - dz; // side 3
+    }
+
     /**
-     * Walks square rings around the player, nearest first, to the next chunk they still need.
+     * Walks square rings around the player, nearest first and starting where they look, to the next chunk they still
+     * need.
      *
      * @return whether a chunk was queued for them
      */
@@ -526,6 +565,7 @@ final class LodGenerator {
             progress.centerZ = viewer.chunkZ;
             progress.ring = minRing;
             progress.ringIndex = 0;
+            progress.ringStart = ringIndexToward(viewer.yaw, minRing);
             progress.rescan = false;
         }
 
@@ -537,9 +577,13 @@ final class LodGenerator {
             if (index >= 8 * ring) {
                 progress.ring++;
                 progress.ringIndex = 0;
+                progress.ringStart = ringIndexToward(viewer.yaw, progress.ring);
                 continue;
             }
             progress.ringIndex++;
+            // From where the player looks, alternately one step further to each side
+            int step = (index + 1) / 2;
+            index = Math.floorMod(progress.ringStart + (index % 2 == 1 ? step : -step), 8 * ring);
 
             int side = index / (2 * ring);
             int offset = index % (2 * ring);

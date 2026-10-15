@@ -204,6 +204,32 @@ final class LodLight {
         queue[1].clear();
     }
 
+    /**
+     * The lowest section of a chunk that daylight reaches. Without sky (the Nether): the bottom of the world.
+     * Outside the lit area nothing is known: {@link Integer#MAX_VALUE}.
+     */
+    int lowestDaylitSection(int chunkX, int chunkZ) {
+        int size = this.width / 16;
+        if (chunkX < this.minX || chunkZ < this.minZ || chunkX >= this.minX + size || chunkZ >= this.minZ + size) {
+            return Integer.MAX_VALUE;
+        }
+        if (!this.hasSky) {
+            return this.minSectionY;
+        }
+        int baseX = (chunkX - this.minX) * 16;
+        int baseZ = (chunkZ - this.minZ) * 16;
+        for (int y = 0; y < this.height; y++) {
+            for (int z = 0; z < 16; z++) {
+                for (int x = 0; x < 16; x++) {
+                    if ((this.sky[this.index(baseX + x, y, baseZ + z)] & 15) != 0) {
+                        return this.minSectionY + (y >> 4);
+                    }
+                }
+            }
+        }
+        return this.minSectionY + this.height / 16;
+    }
+
     /** Sky light of a section; null if no sky reaches it */
     @Nullable DataLayer skyLight(ChunkPos pos, int sectionY) {
         if (!this.hasSky) {

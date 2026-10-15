@@ -17,6 +17,10 @@ final class LodConfig {
     int radius = 256;
     /** Worker threads; the default leaves room for the game, rendering and Voxy itself */
     int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 4);
+    /** Worker threads while the game is paused (single player menu): it needs no CPU time then */
+    int threadsWhilePaused = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+    /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
+    boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
     int featureRadius = 64;
     /** LODs with features also get structures: villages, towers, ruins... Costs some generation speed */
@@ -48,6 +52,7 @@ final class LodConfig {
         }
         config.radius = Math.max(1, config.radius);
         config.threads = Math.max(1, config.threads);
+        config.threadsWhilePaused = Math.max(1, config.threadsWhilePaused);
         config.viewDistanceMargin = Math.max(0, config.viewDistanceMargin);
         config.featureRadius = Math.max(0, config.featureRadius);
         config.tileSize = Math.clamp(config.tileSize, 1, 32);
