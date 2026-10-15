@@ -1,5 +1,6 @@
 package io.github.octomiku01.lodgen;
 
+import io.github.octomiku01.lodgen.mixin.ChunkMapInvoker;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,6 +14,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
@@ -31,6 +33,7 @@ import net.minecraft.world.level.chunk.UpgradeData;
 import net.minecraft.world.level.chunk.status.ChunkPyramid;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.ChunkStep;
+import net.minecraft.world.level.chunk.storage.SerializableChunkData;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import net.minecraft.world.level.levelgen.RandomState;
@@ -97,6 +100,31 @@ final class LodChunkBuilder {
             return null;
         }
         return new LodChunkBuilder(level, generator, structures, keepUnderground);
+    }
+
+    /**
+     * The LOD of a real chunk, read from the save: with everything players built. The chunk is not loaded into the
+     * world; light is computed like for generated chunks.
+     *
+     * @return null if the chunk is not saved (any more)
+     */
+    @Nullable LodChunk fromSaved(ChunkPos pos) {
+        CompoundTag tag = ((ChunkMapInvoker) this.level.getChunkSource().chunkMap).lodgen$readChunk(pos).join().orElse(null);
+        if (tag == null) {
+            return null;
+        }
+        SerializableChunkData data = SerializableChunkData.parse(this.level, this.level.palettedContainerFactory(), tag);
+        ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
+        LevelChunkSection[] sections = chunk.getSections();
+        for (SerializableChunkData.SectionData section : data.sectionData()) {
+            int index = chunk.getSectionIndexFromSectionY(section.y());
+            if (section.chunkSection() != null && index >= 0 && index < sections.length) {
+                sections[index] = section.chunkSection();
+            }
+        }
+        Long2ObjectOpenHashMap<ProtoChunk> chunks = new Long2ObjectOpenHashMap<>();
+        chunks.put(LodGenerator.pack(pos.x(), pos.z()), chunk);
+        return this.toLodChunk(chunk, LodLight.light(this.level, chunks, pos.x(), pos.z(), 1));
     }
 
     /** Terrain only: what distant LODs show */

@@ -14,8 +14,8 @@ import java.util.Arrays;
 import net.minecraft.world.level.chunk.storage.RegionFileVersion;
 
 /**
- * Knows which chunks of a dimension already exist as fully generated chunks on disk. Those already have (or will get)
- * accurate LODs from the real chunk, possibly with the player's builds, and must not be overwritten by plain terrain.
+ * Knows which chunks of a dimension already exist as fully generated chunks on disk, and when they were last saved.
+ * Their LODs come from the real chunk, with the players' builds, and must never be overwritten by plain terrain.
  * <p>
  * Partially generated chunks do not count: the game saves many of them around explored areas (e.g. with only their
  * structure starts), they have no terrain yet, and nothing else could provide an LOD for them.
@@ -46,6 +46,14 @@ final class SavedChunks {
     }
 
     boolean exists(int chunkX, int chunkZ) {
+        return this.savedAt(chunkX, chunkZ) != 0;
+    }
+
+    /**
+     * When a fully generated chunk was last saved, in seconds since 1970 (from the region file header); 0 if there is
+     * none. A newer time means the chunk changed, e.g. a player built something.
+     */
+    int savedAt(int chunkX, int chunkZ) {
         int regionX = chunkX >> 5;
         int regionZ = chunkZ >> 5;
         long key = LodGenerator.pack(regionX, regionZ);
@@ -57,7 +65,10 @@ final class SavedChunks {
             this.regions.put(key, region);
         }
         int index = (chunkX & 31) | (chunkZ & 31) << 5;
-        return (region.full[index >> 6] & 1L << (index & 63)) != 0;
+        if ((region.full[index >> 6] & 1L << (index & 63)) == 0) {
+            return 0;
+        }
+        return Math.max(1, region.timestamps[index]);
     }
 
     private Region read(int regionX, int regionZ, Region previous) {

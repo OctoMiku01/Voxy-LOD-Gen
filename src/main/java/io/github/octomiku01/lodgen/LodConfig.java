@@ -26,6 +26,9 @@ final class LodConfig {
     /** First terrain quickly up to the radius, then the details up to featureRadius, closest first; the terrain stays
      *  twice as far ahead. Off: each ring is finished with its details before the next one */
     boolean terrainFirst = true;
+    /** Real chunks (explored, with the players' builds) become LODs too, read from the save, and are sent again
+     *  when they change. Replaces what Voxy Server Side does for this */
+    boolean sendSavedChunks = true;
     /** LODs with features also get structures: villages, towers, ruins... Costs some generation speed */
     boolean structures = true;
     /** Chunks with features are generated in tiles of this many chunks per side; larger tiles waste less work at

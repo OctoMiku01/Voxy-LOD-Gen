@@ -20,8 +20,10 @@ What the LODs contain:
 Trees that overlap differ in places from the real world: which one grows depends on the order chunks are
 generated in, which is different every time even in vanilla.
 
-Chunks that already exist in the world are left to the game, so LODs of real chunks (with your builds) are never
-overwritten. Areas that only got terrain are sent again with features once a player comes close enough.
+Chunks that already exist in the world (explored, with everyone's builds) are never generated: their LODs are read
+straight from the save, without loading them, and sent again whenever they are saved with changes. Players see what
+others explored and built far away, like with Voxy Server Side. Areas that only got terrain are sent again with
+features once a player comes close enough.
 
 ## Installing
 
@@ -45,6 +47,7 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 | `featureRadius` | 128 | Up to here LODs get features and structures, further away only terrain |
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
+| `sendSavedChunks` | true | Explored chunks become LODs too, read from the save, and are sent again when they change |
 | `threads` | a quarter of the cores | Worker threads while playing |
 | `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused |
 | `keepUnderground` | false | Also send what lies deep underground where no daylight reaches (only visible from inside caves) |

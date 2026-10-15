@@ -3,6 +3,7 @@
 	"package": "io.github.octomiku01.lodgen.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
+		"ChunkMapInvoker",
 		"GenerationChunkHolderAccessor",
 		"StructurePaletteMixin"
 	],

@@ -14,6 +14,8 @@
   "config.lodgen.terrainFirst.tooltip": "First terrain quickly up to the full radius, then trees, plants and structures follow, closest first. Off: each distance is finished with its details before the next one",
   "config.lodgen.structures": "Structures",
   "config.lodgen.structures.tooltip": "Villages, towers, ruins... in the LODs within the detail radius, also from structure mods",
+  "config.lodgen.sendSavedChunks": "Explored chunks as LODs",
+  "config.lodgen.sendSavedChunks.tooltip": "Chunks that already exist (explored, with everyone's builds) become LODs too, read from the save, and are sent again when they change. Replaces Voxy Server Side for this",
   "config.lodgen.keepUnderground": "Keep deep underground",
   "config.lodgen.keepUnderground.tooltip": "Also send what lies deep underground where no daylight reaches. Only visible from inside caves, about doubles the data",
   "config.lodgen.viewDistanceMargin": "Margin to the view distance",

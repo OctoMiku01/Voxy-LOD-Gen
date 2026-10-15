@@ -50,6 +50,9 @@ public final class LodConfigScreen {
         generation.addEntry(entries.startBooleanToggle(name("structures"), config.structures)
                 .setDefaultValue(defaults.structures).setTooltip(tooltip("structures"))
                 .setSaveConsumer(value -> config.structures = value).build());
+        generation.addEntry(entries.startBooleanToggle(name("sendSavedChunks"), config.sendSavedChunks)
+                .setDefaultValue(defaults.sendSavedChunks).setTooltip(tooltip("sendSavedChunks"))
+                .setSaveConsumer(value -> config.sendSavedChunks = value).build());
         generation.addEntry(entries.startBooleanToggle(name("keepUnderground"), config.keepUnderground)
                 .setDefaultValue(defaults.keepUnderground).setTooltip(tooltip("keepUnderground"))
                 .setSaveConsumer(value -> config.keepUnderground = value).build());

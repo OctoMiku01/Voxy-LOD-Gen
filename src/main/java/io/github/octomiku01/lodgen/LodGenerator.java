@@ -1,5 +1,7 @@
 package io.github.octomiku01.lodgen;
 
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.BufferedInputStream;
@@ -77,10 +79,14 @@ final class LodGenerator {
     private static final class Progress {
         /** Marks the file format that stores both sets; older files only have terrain LODs */
         private static final int FORMAT_TWO_LEVELS = -2;
+        /** Also stores which version of each real chunk the player got */
+        private static final int FORMAT_SAVED_CHUNKS = -3;
 
         final Path file;
         final LongOpenHashSet done = new LongOpenHashSet(); // with features; guarded by itself
         final LongOpenHashSet doneTerrain = new LongOpenHashSet(); // terrain only; guarded by done
+        /** Real chunks the player got, with the time they were saved then; guarded by done */
+        final Long2IntOpenHashMap savedSent = new Long2IntOpenHashMap();
         volatile boolean dirty;
         /** Set by workers to restart the search at the player */
         volatile boolean rescan;
@@ -130,9 +136,23 @@ final class LodGenerator {
             this.dirty = true;
         }
 
+        /** Whether the player got this real chunk as it was saved at that time, or newer */
+        boolean hasSaved(long key, int savedAt) {
+            synchronized (this.done) {
+                return this.savedSent.get(key) >= savedAt;
+            }
+        }
+
+        void markSaved(long key, int savedAt) {
+            synchronized (this.done) {
+                this.savedSent.put(key, savedAt);
+            }
+            this.dirty = true;
+        }
+
         int doneCount() {
             synchronized (this.done) {
-                return this.done.size() + this.doneTerrain.size();
+                return this.done.size() + this.doneTerrain.size() + this.savedSent.size();
             }
         }
 
@@ -140,6 +160,7 @@ final class LodGenerator {
             synchronized (this.done) {
                 this.done.clear();
                 this.doneTerrain.clear();
+                this.savedSent.clear();
             }
             this.dirty = true;
             this.rescan = true;
@@ -151,9 +172,15 @@ final class LodGenerator {
             }
             try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(this.file)))) {
                 int first = in.readInt();
-                if (first == FORMAT_TWO_LEVELS) {
+                if (first == FORMAT_TWO_LEVELS || first == FORMAT_SAVED_CHUNKS) {
                     readSet(in, this.done, in.readInt());
                     readSet(in, this.doneTerrain, in.readInt());
+                    if (first == FORMAT_SAVED_CHUNKS) {
+                        int count = in.readInt();
+                        for (int i = 0; i < count; i++) {
+                            this.savedSent.put(in.readLong(), in.readInt());
+                        }
+                    }
                 } else {
                     // Written before features existed: all of them are terrain only
                     readSet(in, this.doneTerrain, first);
@@ -164,6 +191,7 @@ final class LodGenerator {
                 LodGen.LOGGER.error("Could not read {}, LODs will be generated again", this.file, e);
                 this.done.clear();
                 this.doneTerrain.clear();
+                this.savedSent.clear();
             }
         }
 
@@ -190,9 +218,14 @@ final class LodGenerator {
                 Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");
                 try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temp)))) {
                     synchronized (this.done) {
-                        out.writeInt(FORMAT_TWO_LEVELS);
+                        out.writeInt(FORMAT_SAVED_CHUNKS);
                         writeSet(out, this.done);
                         writeSet(out, this.doneTerrain);
+                        out.writeInt(this.savedSent.size());
+                        for (Long2IntMap.Entry entry : this.savedSent.long2IntEntrySet()) {
+                            out.writeLong(entry.getLongKey());
+                            out.writeInt(entry.getIntValue());
+                        }
                     }
                 }
                 Files.move(temp, this.file, StandardCopyOption.REPLACE_EXISTING);
@@ -208,7 +241,10 @@ final class LodGenerator {
 
     private enum Join { ADDED, ALREADY, TOO_LATE }
 
-    /** A square of chunks to build (a single chunk without features, a tile with them), and everyone it goes to */
+    /**
+     * A square of chunks to build (a single chunk without features, a tile with them), or a real chunk to read from
+     * the save, and everyone it goes to
+     */
     private static final class Task {
         final int minX;
         final int minZ;
@@ -216,15 +252,32 @@ final class LodGenerator {
         final boolean features;
         /** Chunks that exist as real chunks on disk: built for context, but not delivered */
         final boolean[] saved;
+        /** For a real chunk: when it was saved, the version this task delivers; 0 for generated LODs */
+        final int savedAt;
         private final List<Recipient> recipients = new ArrayList<>(2);
         private boolean delivering;
 
-        Task(int minX, int minZ, int size, boolean features, boolean[] saved) {
+        Task(int minX, int minZ, int size, boolean features, boolean[] saved, int savedAt) {
             this.minX = minX;
             this.minZ = minZ;
             this.size = size;
             this.features = features;
             this.saved = saved;
+            this.savedAt = savedAt;
+        }
+
+        /** Whether this player still needs the chunk at this index from this task */
+        boolean neededBy(int index, Progress progress) {
+            long key = this.chunkKey(index);
+            return this.savedAt != 0 ? !progress.hasSaved(key, this.savedAt) : !this.saved[index] && !progress.isDone(key, this.features);
+        }
+
+        void delivered(int index, Progress progress) {
+            if (this.savedAt != 0) {
+                progress.markSaved(this.chunkKey(index), this.savedAt);
+            } else {
+                progress.markDone(this.chunkKey(index), this.features);
+            }
         }
 
         long chunkKey(int index) {
@@ -256,6 +309,7 @@ final class LodGenerator {
         final SavedChunks saved; // scheduler thread only
         final Map<Long, Task> queued = new ConcurrentHashMap<>(); // terrain only, by chunk
         final Map<Long, Task> tiles = new ConcurrentHashMap<>(); // with features, by tile
+        final Map<Long, Task> real = new ConcurrentHashMap<>(); // real chunks read from the save, by chunk
         @Nullable LodSink hostSink; // scheduler thread only
         boolean hostSinkCreated;
 
@@ -450,6 +504,10 @@ final class LodGenerator {
                 if (now - lastSave >= SAVE_INTERVAL_MILLIS) {
                     this.saveAll();
                     lastSave = now;
+                    if (this.config.sendSavedChunks) {
+                        // Real chunks change when players build: walk again to send the ones saved since
+                        this.progress.values().forEach(byDimension -> byDimension.values().forEach(progress -> progress.rescan = true));
+                    }
                 }
 
                 if (full) {
@@ -657,7 +715,15 @@ final class LodGenerator {
             int chunkZ = progress.centerZ + dz;
             long key = pack(chunkX, chunkZ);
             boolean features = onlyDetails || !this.config.terrainFirst && ring <= this.config.featureRadius;
-            if (progress.isDone(key, features) || dimension.saved.exists(chunkX, chunkZ)) {
+            int savedAt = dimension.saved.savedAt(chunkX, chunkZ);
+            if (savedAt != 0) {
+                // A real chunk: its LOD comes from the save, with the players' builds, never from generated terrain.
+                // Sent once per version, by the walk that covers the whole radius
+                if (!this.config.sendSavedChunks || cursor != progress.terrain || progress.hasSaved(key, savedAt)) {
+                    continue;
+                }
+                features = false;
+            } else if (progress.isDone(key, features)) {
                 continue;
             }
 
@@ -669,21 +735,21 @@ final class LodGenerator {
             }
             Recipient recipient = new Recipient(sink, progress);
 
-            // Features are built in tiles, terrain chunk by chunk
+            // Features are built in tiles, terrain and real chunks chunk by chunk
             int size = features ? this.config.tileSize : 1;
             int minX = Math.floorDiv(chunkX, size) * size;
             int minZ = Math.floorDiv(chunkZ, size) * size;
-            Map<Long, Task> tasks = features ? dimension.tiles : dimension.queued;
+            Map<Long, Task> tasks = savedAt != 0 ? dimension.real : features ? dimension.tiles : dimension.queued;
             long taskKey = pack(minX, minZ);
 
             // Already being built for someone else: add this player to it
             Task task = tasks.get(taskKey);
             if (task == null) {
                 boolean[] saved = new boolean[size * size];
-                for (int i = 0; i < saved.length; i++) {
+                for (int i = 0; savedAt == 0 && i < saved.length; i++) {
                     saved[i] = dimension.saved.exists(minX + i / size, minZ + i % size);
                 }
-                task = new Task(minX, minZ, size, features, saved);
+                task = new Task(minX, minZ, size, features, saved, savedAt);
                 task.add(recipient);
                 tasks.put(taskKey, task);
                 progress.tokens -= this.wanted(task, progress);
@@ -715,7 +781,7 @@ final class LodGenerator {
     private int wanted(Task task, Progress progress) {
         int count = 0;
         for (int index = 0; index < task.saved.length; index++) {
-            if (!task.saved[index] && !progress.isDone(task.chunkKey(index), task.features)) {
+            if (task.neededBy(index, progress)) {
                 count++;
             }
         }
@@ -729,10 +795,17 @@ final class LodGenerator {
             }
             List<LodChunk> chunks = null;
             try {
-                chunks = task.features
-                        ? dimension.builder.buildTile(task.minX, task.minZ, task.size, () -> !this.running)
-                        : List.of(dimension.builder.build(new ChunkPos(task.minX, task.minZ)));
-                this.generated.addAndGet(chunks.size());
+                if (task.savedAt != 0) {
+                    LodChunk chunk = dimension.builder.fromSaved(new ChunkPos(task.minX, task.minZ));
+                    chunks = chunk == null ? null : List.of(chunk);
+                } else {
+                    chunks = task.features
+                            ? dimension.builder.buildTile(task.minX, task.minZ, task.size, () -> !this.running)
+                            : List.of(dimension.builder.build(new ChunkPos(task.minX, task.minZ)));
+                }
+                if (chunks != null) {
+                    this.generated.addAndGet(chunks.size());
+                }
             } catch (Throwable t) {
                 if (!this.running) {
                     // The world is closing (and workers get interrupted): nothing is lost, it is built next time
@@ -742,7 +815,7 @@ final class LodGenerator {
                     LodGen.LOGGER.error("Could not build the LOD for chunk {}, {}", task.minX, task.minZ, t);
                 }
             }
-            (task.features ? dimension.tiles : dimension.queued).remove(taskKey);
+            (task.savedAt != 0 ? dimension.real : task.features ? dimension.tiles : dimension.queued).remove(taskKey);
             if (!this.running) {
                 return;
             }
@@ -759,13 +832,12 @@ final class LodGenerator {
 
     private void deliver(Task task, @Nullable List<LodChunk> chunks, Recipient recipient) {
         for (int index = 0; index < task.saved.length; index++) {
-            long key = task.chunkKey(index);
-            if (task.saved[index] || recipient.progress.isDone(key, task.features)) {
+            if (!task.neededBy(index, recipient.progress)) {
                 continue;
             }
             if (chunks == null) {
                 // Skip it instead of failing on it forever
-                recipient.progress.markDone(key, task.features);
+                task.delivered(index, recipient.progress);
                 continue;
             }
             try {
@@ -775,12 +847,12 @@ final class LodGenerator {
                     recipient.progress.rescan = true;
                     return;
                 }
-                recipient.progress.markDone(key, task.features);
+                task.delivered(index, recipient.progress);
                 if (recipient.sink instanceof NetworkSink) {
                     this.sent.incrementAndGet();
                 }
             } catch (Throwable t) {
-                recipient.progress.markDone(key, task.features);
+                task.delivered(index, recipient.progress);
                 if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
                     LodGen.LOGGER.error("Could not deliver the LOD for chunk {}, {}", task.minX + index / task.size, task.minZ + index % task.size, t);
                 }

@@ -14,6 +14,8 @@
   "config.lodgen.terrainFirst.tooltip": "Erst schnell das Gelände bis zur vollen Reichweite, Bäume, Pflanzen und Strukturen folgen danach von innen nach außen. Aus: Jede Entfernung wird mit ihren Details fertig, bevor die nächste kommt",
   "config.lodgen.structures": "Strukturen",
   "config.lodgen.structures.tooltip": "Dörfer, Türme, Ruinen... in den LODs innerhalb der Detail-Reichweite, auch aus Struktur-Mods",
+  "config.lodgen.sendSavedChunks": "Erkundete Chunks als LODs",
+  "config.lodgen.sendSavedChunks.tooltip": "Chunks, die es schon gibt (erkundet, mit allen Bauten), werden auch zu LODs, direkt aus dem Spielstand gelesen, und erneut geschickt, wenn sie sich ändern. Ersetzt dafür Voxy Server Side",
   "config.lodgen.keepUnderground": "Tiefen Untergrund behalten",
   "config.lodgen.keepUnderground.tooltip": "Auch senden, was tief unter der Erde liegt, wo kein Tageslicht hinkommt. Nur aus Höhlen heraus sichtbar, etwa doppelt so viele Daten",
   "config.lodgen.viewDistanceMargin": "Abstand zur Sichtweite",
