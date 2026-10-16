@@ -55,19 +55,5 @@ loom {
             // Measure generation speed on the dev server: no Voxy, no player, results are discarded
             vmArg("-Dlodgen.benchmark=true")
         }
-        register("mpServer") {
-            server()
-            runDir("run-mp/server")
-            vmArgs("-Dlodgen.mptest=true", "-Xmx4G")
-            programArgs("nogui")
-        }
-        for (name in listOf("A", "B")) {
-            register("mpClient$name") {
-                client()
-                runDir("run-mp/client$name")
-                vmArgs("-Dlodgen.mptest=true", "-Xmx4G")
-                programArgs("--username", "Player$name", "--quickPlayMultiplayer", "localhost:25565")
-            }
-        }
     }
 }

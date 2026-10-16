@@ -45,9 +45,6 @@ public class LodGen implements ModInitializer {
             if (generator != null) {
                 generator.onServerTick();
             }
-            if (Boolean.getBoolean("lodgen.mptest")) {
-                MpTest.tick(server, generator);
-            }
         });
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
