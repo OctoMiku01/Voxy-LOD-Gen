@@ -2,6 +2,7 @@ package io.github.octomiku01.lodgen;
 
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.BufferedInputStream;
@@ -81,12 +82,16 @@ final class LodGenerator {
         private static final int FORMAT_TWO_LEVELS = -2;
         /** Also stores which version of each real chunk the player got */
         private static final int FORMAT_SAVED_CHUNKS = -3;
+        /** Also stores the content of those versions */
+        private static final int FORMAT_SAVED_CONTENT = -4;
 
         final Path file;
         final LongOpenHashSet done = new LongOpenHashSet(); // with features; guarded by itself
         final LongOpenHashSet doneTerrain = new LongOpenHashSet(); // terrain only; guarded by done
         /** Real chunks the player got, with the time they were saved then; guarded by done */
         final Long2IntOpenHashMap savedSent = new Long2IntOpenHashMap();
+        /** What those real chunks contained ({@link LodChunk#contentHash()}); guarded by done */
+        final Long2LongOpenHashMap savedContent = new Long2LongOpenHashMap();
         volatile boolean dirty;
         /** Set by workers to restart the search at the player */
         volatile boolean rescan;
@@ -143,11 +148,19 @@ final class LodGenerator {
             }
         }
 
-        void markSaved(long key, int savedAt) {
+        void markSaved(long key, int savedAt, long content) {
             synchronized (this.done) {
                 this.savedSent.put(key, savedAt);
+                this.savedContent.put(key, content);
             }
             this.dirty = true;
+        }
+
+        /** Whether the player already has this content for the real chunk, from an earlier version */
+        boolean hasSavedContent(long key, long content) {
+            synchronized (this.done) {
+                return content != 0 && this.savedContent.get(key) == content;
+            }
         }
 
         int doneCount() {
@@ -161,6 +174,7 @@ final class LodGenerator {
                 this.done.clear();
                 this.doneTerrain.clear();
                 this.savedSent.clear();
+                this.savedContent.clear();
             }
             this.dirty = true;
             this.rescan = true;
@@ -172,13 +186,17 @@ final class LodGenerator {
             }
             try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(this.file)))) {
                 int first = in.readInt();
-                if (first == FORMAT_TWO_LEVELS || first == FORMAT_SAVED_CHUNKS) {
+                if (first == FORMAT_TWO_LEVELS || first == FORMAT_SAVED_CHUNKS || first == FORMAT_SAVED_CONTENT) {
                     readSet(in, this.done, in.readInt());
                     readSet(in, this.doneTerrain, in.readInt());
-                    if (first == FORMAT_SAVED_CHUNKS) {
+                    if (first != FORMAT_TWO_LEVELS) {
                         int count = in.readInt();
                         for (int i = 0; i < count; i++) {
-                            this.savedSent.put(in.readLong(), in.readInt());
+                            long key = in.readLong();
+                            this.savedSent.put(key, in.readInt());
+                            if (first == FORMAT_SAVED_CONTENT) {
+                                this.savedContent.put(key, in.readLong());
+                            }
                         }
                     }
                 } else {
@@ -192,6 +210,7 @@ final class LodGenerator {
                 this.done.clear();
                 this.doneTerrain.clear();
                 this.savedSent.clear();
+                this.savedContent.clear();
             }
         }
 
@@ -218,13 +237,14 @@ final class LodGenerator {
                 Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");
                 try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temp)))) {
                     synchronized (this.done) {
-                        out.writeInt(FORMAT_SAVED_CHUNKS);
+                        out.writeInt(FORMAT_SAVED_CONTENT);
                         writeSet(out, this.done);
                         writeSet(out, this.doneTerrain);
                         out.writeInt(this.savedSent.size());
                         for (Long2IntMap.Entry entry : this.savedSent.long2IntEntrySet()) {
                             out.writeLong(entry.getLongKey());
                             out.writeInt(entry.getIntValue());
+                            out.writeLong(this.savedContent.get(entry.getLongKey()));
                         }
                     }
                 }
@@ -272,9 +292,12 @@ final class LodGenerator {
             return this.savedAt != 0 ? !progress.hasSaved(key, this.savedAt) : !this.saved[index] && !progress.isDone(key, this.features);
         }
 
-        void delivered(int index, Progress progress) {
+        /**
+         * @param chunk what was delivered; null when it could not be built
+         */
+        void delivered(int index, Progress progress, @Nullable LodChunk chunk) {
             if (this.savedAt != 0) {
-                progress.markSaved(this.chunkKey(index), this.savedAt);
+                progress.markSaved(this.chunkKey(index), this.savedAt, chunk == null ? 0 : chunk.contentHash());
             } else {
                 progress.markDone(this.chunkKey(index), this.features);
             }
@@ -837,22 +860,28 @@ final class LodGenerator {
             }
             if (chunks == null) {
                 // Skip it instead of failing on it forever
-                task.delivered(index, recipient.progress);
+                task.delivered(index, recipient.progress, null);
                 continue;
             }
+            LodChunk chunk = chunks.get(index);
             try {
-                if (!recipient.sink.accept(chunks.get(index))) {
+                // The server saves loaded chunks again and again, mostly without changes: those need not be sent
+                if (task.savedAt != 0 && recipient.progress.hasSavedContent(task.chunkKey(index), chunk.contentHash())) {
+                    task.delivered(index, recipient.progress, chunk);
+                    continue;
+                }
+                if (!recipient.sink.accept(chunk)) {
                     // Not ready (Voxy still loading, player left or switched dimension): try again later
                     recipient.progress.pausedUntil = System.currentTimeMillis() + RETRY_MILLIS;
                     recipient.progress.rescan = true;
                     return;
                 }
-                task.delivered(index, recipient.progress);
+                task.delivered(index, recipient.progress, chunk);
                 if (recipient.sink instanceof NetworkSink) {
                     this.sent.incrementAndGet();
                 }
             } catch (Throwable t) {
-                task.delivered(index, recipient.progress);
+                task.delivered(index, recipient.progress, null);
                 if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
                     LodGen.LOGGER.error("Could not deliver the LOD for chunk {}, {}", task.minX + index / task.size, task.minZ + index % task.size, t);
                 }

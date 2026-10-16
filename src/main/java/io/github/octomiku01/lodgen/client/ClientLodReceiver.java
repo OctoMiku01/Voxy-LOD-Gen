@@ -23,6 +23,9 @@ final class ClientLodReceiver {
     }
 
     static void receive(LodChunkPayload payload, Minecraft client) {
+        if (MpTestClient.ENABLED) {
+            MpTestClient.received(payload, client);
+        }
         if (!PENDING.isEmpty() || !ingest(payload, client)) {
             if (PENDING.size() >= MAX_PENDING) {
                 PENDING.pollFirst();

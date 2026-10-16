@@ -15,6 +15,9 @@ public class LodGenClient implements ClientModInitializer {
             ClientPlayNetworking.registerGlobalReceiver(LodChunkPayload.TYPE, (payload, context) -> ClientLodReceiver.receive(payload, context.client()));
             ClientTickEvents.END_CLIENT_TICK.register(ClientLodReceiver::tick);
             ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientLodReceiver.clear());
+            if (MpTestClient.ENABLED) {
+                MpTestClient.register();
+            }
         }
     }
 }

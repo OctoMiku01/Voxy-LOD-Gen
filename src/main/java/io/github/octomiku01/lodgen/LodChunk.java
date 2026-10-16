@@ -1,6 +1,8 @@
 package io.github.octomiku01.lodgen;
 
 import io.netty.buffer.Unpooled;
+import java.util.Arrays;
+import java.util.zip.CRC32C;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -30,6 +32,7 @@ public final class LodChunk {
     private final @Nullable DataLayer[] skyLight;
     private final @Nullable DataLayer[] blockLight;
     private byte @Nullable [] encoded;
+    private long contentHash;
 
     LodChunk(int x, int z, int minSectionY, LevelChunkSection[] sections, @Nullable DataLayer[] skyLight, @Nullable DataLayer[] blockLight) {
         this.x = x;
@@ -85,6 +88,17 @@ public final class LodChunk {
             }
             default -> null;
         };
+    }
+
+    /** Identifies the content: a chunk saved again without changes gives the same value */
+    synchronized long contentHash() {
+        if (this.contentHash == 0) {
+            byte[] data = this.encoded();
+            CRC32C crc = new CRC32C();
+            crc.update(data);
+            this.contentHash = crc.getValue() << 32 | Arrays.hashCode(data) & 0xFFFFFFFFL;
+        }
+        return this.contentHash;
     }
 
     /** Reads {@link #encoded()} back, on the receiving client. */
