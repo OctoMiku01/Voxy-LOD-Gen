@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
 import net.minecraft.nbt.CompoundTag;
@@ -239,9 +240,10 @@ final class LodChunkBuilder {
         chunk.setPersistedStatus(ChunkStatus.BIOMES);
         this.generator.fillFromNoise(Blender.empty(), this.randomState, this.structures, chunk).join();
         chunk.setPersistedStatus(ChunkStatus.NOISE);
-        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, this.biomeManager(chunk), Blender.empty(), this.possibleBiomes);
+        BiomeManager biomes = this.biomeManager(chunk);
+        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, biomes, Blender.empty(), this.possibleBiomes);
         chunk.setPersistedStatus(ChunkStatus.SURFACE);
-        this.carve(chunk);
+        this.carve(chunk, biomes);
         chunk.setPersistedStatus(ChunkStatus.CARVERS);
         return chunk;
     }
@@ -251,11 +253,11 @@ final class LodChunkBuilder {
      * for their biome: {@link CarverRegion} answers that without needing the chunks themselves. They only write to
      * this chunk.
      */
-    private void carve(ProtoChunk chunk) {
+    private void carve(ProtoChunk chunk, BiomeManager biomes) {
         ChunkPos pos = chunk.getPos();
         StaticCache2D<GenerationChunkHolder> self = StaticCache2D.create(pos.x(), pos.z(), 0, (x, z) -> new LodChunkHolder(chunk, ChunkStatus.SURFACE));
         WorldGenRegion region = new CarverRegion(this.level, self, chunk, this.carverSource);
-        this.generator.applyCarvers(region, this.level.getSeed(), this.randomState, this.biomeManager(chunk), this.structures, chunk);
+        this.generator.applyCarvers(region, this.level.getSeed(), this.randomState, biomes, this.structures, chunk);
     }
 
     private static final class CarverRegion extends WorldGenRegion {
@@ -271,30 +273,54 @@ final class LodChunkBuilder {
         @Override
         public ChunkAccess getChunk(int x, int z) {
             ChunkPos pos = this.center.getPos();
-            return x == pos.x() && z == pos.z() ? this.center : this.source;
+            if (x == pos.x() && z == pos.z()) {
+                return this.center;
+            }
+            // The carvers ask it for its biome right away
+            this.source.asking.set(LodGenerator.pack(x, z));
+            return this.source;
         }
     }
 
-    /** Stands in for the chunks where caves start: computes their carver biome each time instead of remembering it */
+    /**
+     * Stands in for the chunks where caves start, for all workers: knows their carver biome. Each chunk asks the 17 by
+     * 17 chunks around it, so it is remembered.
+     */
     private static final class CarverSource extends ProtoChunk {
+        /** Which chunk the carvers on this thread asked for, see {@link CarverRegion#getChunk} */
+        final ThreadLocal<Long> asking = new ThreadLocal<>();
+        private final ChunkCache<BiomeGenerationSettings> biomes = new ChunkCache<>(65536);
+
         CarverSource(ServerLevel level) {
             super(ChunkPos.ZERO, UpgradeData.EMPTY, level, level.palettedContainerFactory(), null);
         }
 
         @Override
         public BiomeGenerationSettings carverBiome(Supplier<BiomeGenerationSettings> supplier) {
-            return supplier.get();
+            Long chunk = this.asking.get();
+            return chunk == null ? supplier.get() : this.biomes.get(chunk, key -> supplier.get());
         }
     }
 
-    // Biome blending at the chunk edge looks at the neighbouring chunks: those biomes are computed directly
+    /**
+     * Biome blending at the chunk edge looks at the neighbouring chunks: those biomes are computed directly, and
+     * remembered, since every block along the edge asks again and computing one costs a lot. Only for this chunk, on
+     * one thread.
+     */
     private BiomeManager biomeManager(ProtoChunk chunk) {
         ChunkPos pos = chunk.getPos();
+        Long2ObjectOpenHashMap<Holder<Biome>> neighbours = new Long2ObjectOpenHashMap<>();
         return new BiomeManager((quartX, quartY, quartZ) -> {
             if (QuartPos.toSection(quartX) == pos.x() && QuartPos.toSection(quartZ) == pos.z()) {
                 return chunk.getNoiseBiome(quartX, quartY, quartZ);
             }
-            return this.biomeSource.getNoiseBiome(quartX, quartY, quartZ, this.randomState.sampler());
+            long key = BlockPos.asLong(quartX, quartY, quartZ);
+            Holder<Biome> biome = neighbours.get(key);
+            if (biome == null) {
+                biome = this.biomeSource.getNoiseBiome(quartX, quartY, quartZ, this.randomState.sampler());
+                neighbours.put(key, biome);
+            }
+            return biome;
         }, this.biomeZoomSeed);
     }
 

@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
@@ -35,14 +34,14 @@ import org.jetbrains.annotations.Nullable;
 final class LodStructures extends StructureManager {
     /** Structures reach at most this many chunks from where they start, like in vanilla's references step */
     private static final int REFERENCE_RANGE = 8;
-    /** Forget everything when this many chunks are known, so memory stays bounded while players explore */
-    private static final int MAX_CACHED = 65536;
+    /** How many chunks' structures are remembered, see {@link ChunkCache} */
+    private static final int CACHED_CHUNKS = 131072;
 
     private final ServerLevel level;
     private final ChunkGenerator generator;
     private final ChunkGeneratorStructureState state;
-    private final Map<Long, Map<Structure, StructureStart>> starts = new ConcurrentHashMap<>();
-    private final Map<Long, Map<Structure, List<StructureStart>>> references = new ConcurrentHashMap<>();
+    private final ChunkCache<Map<Structure, StructureStart>> starts = new ChunkCache<>(CACHED_CHUNKS);
+    private final ChunkCache<Map<Structure, List<StructureStart>>> references = new ChunkCache<>(CACHED_CHUNKS);
 
     LodStructures(ServerLevel level) {
         super(level, level.getServer().getWorldGenSettings().options(), null);
@@ -53,29 +52,20 @@ final class LodStructures extends StructureManager {
 
     /** The structures that start in this chunk */
     private Map<Structure, StructureStart> startsIn(int chunkX, int chunkZ) {
-        long key = LodGenerator.pack(chunkX, chunkZ);
-        Map<Structure, StructureStart> known = this.starts.get(key);
-        if (known != null) {
-            return known;
-        }
-        // Like vanilla's structure starts step, on a chunk that only holds the result
-        ProtoChunk chunk = new ProtoChunk(new ChunkPos(chunkX, chunkZ), UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
-        this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureManager(), this.level.dimension());
-        Map<Structure, StructureStart> found = Map.copyOf(chunk.getAllStarts());
-        if (this.starts.size() > MAX_CACHED) {
-            this.starts.clear();
-        }
-        Map<Structure, StructureStart> raced = this.starts.putIfAbsent(key, found);
-        return raced != null ? raced : found;
+        return this.starts.get(LodGenerator.pack(chunkX, chunkZ), key -> {
+            // Like vanilla's structure starts step, on a chunk that only holds the result
+            ProtoChunk chunk = new ProtoChunk(new ChunkPos(chunkX, chunkZ), UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
+            this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureManager(), this.level.dimension());
+            return Map.copyOf(chunk.getAllStarts());
+        });
     }
 
     /** The structures that reach into this chunk, like vanilla's references step */
     private Map<Structure, List<StructureStart>> reaching(int chunkX, int chunkZ) {
-        long key = LodGenerator.pack(chunkX, chunkZ);
-        Map<Structure, List<StructureStart>> known = this.references.get(key);
-        if (known != null) {
-            return known;
-        }
+        return this.references.get(LodGenerator.pack(chunkX, chunkZ), key -> this.findReaching(chunkX, chunkZ));
+    }
+
+    private Map<Structure, List<StructureStart>> findReaching(int chunkX, int chunkZ) {
         int minBlockX = chunkX << 4;
         int minBlockZ = chunkZ << 4;
         Map<Structure, List<StructureStart>> found = new HashMap<>();
@@ -88,11 +78,7 @@ final class LodStructures extends StructureManager {
                 }
             }
         }
-        if (this.references.size() > MAX_CACHED) {
-            this.references.clear();
-        }
-        Map<Structure, List<StructureStart>> raced = this.references.putIfAbsent(key, found);
-        return raced != null ? raced : found;
+        return found;
     }
 
     @Override
