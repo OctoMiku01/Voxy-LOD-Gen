@@ -20,10 +20,12 @@ public class LodGen implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     private static @Nullable LodGenerator generator;
+    private static @Nullable FarPlayers farPlayers;
 
     @Override
     public void onInitialize() {
         PayloadTypeRegistry.clientboundPlay().register(LodChunkPayload.TYPE, LodChunkPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(FarEntitiesPayload.TYPE, FarEntitiesPayload.CODEC);
 
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             // Benchmark mode (-Dlodgen.benchmark=true) measures generation speed without Voxy and without a player
@@ -32,6 +34,7 @@ public class LodGen implements ModInitializer {
             if (config.enabled) {
                 generator = new LodGenerator(server, config, benchmark);
             }
+            startFarPlayers(server, config);
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -39,11 +42,15 @@ public class LodGen implements ModInitializer {
                 generator.stop();
                 generator = null;
             }
+            farPlayers = null;
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             if (generator != null) {
                 generator.onServerTick();
+            }
+            if (farPlayers != null) {
+                farPlayers.tick();
             }
         });
 
@@ -69,7 +76,15 @@ public class LodGen implements ModInitializer {
             if (config.enabled) {
                 generator = new LodGenerator(server, config, benchmark);
             }
+            if (farPlayers != null) {
+                farPlayers.stop();
+            }
+            startFarPlayers(server, config);
         });
+    }
+
+    private static void startFarPlayers(MinecraftServer server, LodConfig config) {
+        farPlayers = config.farPlayers && config.sendToPlayers ? new FarPlayers(server, config.radius) : null;
     }
 
     private static int setPaused(CommandContext<CommandSourceStack> context, boolean paused) {

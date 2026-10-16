@@ -5,7 +5,8 @@
 	"mixins": [
 		"ChunkMapInvoker",
 		"GenerationChunkHolderAccessor",
-		"StructurePaletteMixin"
+		"StructurePaletteMixin",
+		"SynchedEntityDataAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

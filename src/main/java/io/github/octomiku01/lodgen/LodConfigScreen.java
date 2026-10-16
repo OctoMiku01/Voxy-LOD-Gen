@@ -75,6 +75,9 @@ public final class LodConfigScreen {
         multiplayer.addEntry(entries.startBooleanToggle(name("sendToPlayers"), config.sendToPlayers)
                 .setDefaultValue(defaults.sendToPlayers).setTooltip(tooltip("sendToPlayers"))
                 .setSaveConsumer(value -> config.sendToPlayers = value).build());
+        multiplayer.addEntry(entries.startBooleanToggle(name("farPlayers"), config.farPlayers)
+                .setDefaultValue(defaults.farPlayers).setTooltip(tooltip("farPlayers"))
+                .setSaveConsumer(value -> config.farPlayers = value).build());
         multiplayer.addEntry(entries.startIntField(name("maxChunksPerSecondPerPlayer"), config.maxChunksPerSecondPerPlayer)
                 .setDefaultValue(defaults.maxChunksPerSecondPerPlayer).setMin(1).setMax(1000).setTooltip(tooltip("maxChunksPerSecondPerPlayer"))
                 .setSaveConsumer(value -> config.maxChunksPerSecondPerPlayer = value).build());

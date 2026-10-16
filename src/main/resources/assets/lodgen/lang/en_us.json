@@ -28,6 +28,8 @@
   "config.lodgen.tileSize.tooltip": "Chunks with details are generated in tiles of this many chunks per side. Larger tiles waste less work at their edges but take more memory",
   "config.lodgen.sendToPlayers": "Send to other players",
   "config.lodgen.sendToPlayers.tooltip": "Players who join your world and also have this mod and Voxy get LODs over the network",
+  "config.lodgen.farPlayers": "Show far players",
+  "config.lodgen.farPlayers.tooltip": "Players beyond the view distance are shown on the LODs, with what they ride, to everyone who gets LODs",
   "config.lodgen.maxChunksPerSecondPerPlayer": "Chunks per second per player",
   "config.lodgen.maxChunksPerSecondPerPlayer.tooltip": "Network limit for each player, about 20 KiB per chunk before compression"
 }

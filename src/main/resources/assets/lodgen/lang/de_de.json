@@ -28,6 +28,8 @@
   "config.lodgen.tileSize.tooltip": "Chunks mit Details werden in Kacheln mit so vielen Chunks Seitenlänge erzeugt. Größere Kacheln verschwenden weniger Arbeit an ihren Rändern, brauchen aber mehr Speicher",
   "config.lodgen.sendToPlayers": "An andere Spieler senden",
   "config.lodgen.sendToPlayers.tooltip": "Spieler, die deiner Welt beitreten und diese Mod und Voxy auch haben, bekommen LODs übers Netzwerk",
+  "config.lodgen.farPlayers": "Ferne Spieler zeigen",
+  "config.lodgen.farPlayers.tooltip": "Spieler hinter der Sichtweite werden auf den LODs gezeigt, mit dem, worauf sie reiten, für alle, die LODs bekommen",
   "config.lodgen.maxChunksPerSecondPerPlayer": "Chunks pro Sekunde je Spieler",
   "config.lodgen.maxChunksPerSecondPerPlayer.tooltip": "Netzwerk-Grenze für jeden Spieler, etwa 20 KiB pro Chunk vor der Kompression"
 }

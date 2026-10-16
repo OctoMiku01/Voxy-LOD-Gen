@@ -1,10 +1,12 @@
 package io.github.octomiku01.lodgen.client;
 
+import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.loader.api.FabricLoader;
 
 public class LodGenClient implements ClientModInitializer {
@@ -14,7 +16,13 @@ public class LodGenClient implements ClientModInitializer {
         if (FabricLoader.getInstance().isModLoaded("voxy")) {
             ClientPlayNetworking.registerGlobalReceiver(LodChunkPayload.TYPE, (payload, context) -> ClientLodReceiver.receive(payload, context.client()));
             ClientTickEvents.END_CLIENT_TICK.register(ClientLodReceiver::tick);
-            ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientLodReceiver.clear());
+            ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+                ClientLodReceiver.clear();
+                FarEntities.reset();
+            });
+            ClientPlayNetworking.registerGlobalReceiver(FarEntitiesPayload.TYPE, (payload, context) -> FarEntities.receive(payload, context.client()));
+            ClientTickEvents.END_CLIENT_TICK.register(FarEntities::tick);
+            LevelRenderEvents.COLLECT_SUBMITS.register(FarEntities::render);
         }
     }
 }

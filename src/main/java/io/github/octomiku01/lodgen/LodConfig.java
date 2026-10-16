@@ -38,6 +38,8 @@ final class LodConfig {
     int viewDistanceMargin = 0;
     /** Send LODs to other players whose client has this mod and Voxy */
     boolean sendToPlayers = true;
+    /** Players beyond the view distance are shown to everyone who gets LODs, with what they ride */
+    boolean farPlayers = true;
     /** Per player that gets LODs over the network; about 20 KiB each before the connection compresses them */
     int maxChunksPerSecondPerPlayer = 20;
 

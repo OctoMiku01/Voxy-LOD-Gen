@@ -32,6 +32,10 @@ straight from the save, without loading them, and sent again whenever they are s
 others explored and built far away, like with Voxy Server Side. Areas that only got terrain are sent again with
 features once a player comes close enough.
 
+Other players beyond the view distance are shown on the LODs too, like with Voxy Server Side: with their skin,
+armor and what they hold, on what they ride (horses, boats...), lit as it is where they are, and with their name
+tags, which stay readable from far away but are hidden behind terrain. Up close the game shows the real ones again.
+
 ## Installing
 
 - **Single player, and the host when playing with friends** (LAN, Essential...): install it next to Voxy. LODs are
@@ -61,6 +65,7 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 | `tileSize` | 16 | Chunks with features are generated in tiles of this size |
 | `viewDistanceMargin` | 0 | Chunks this close beyond the view distance are left to the game |
 | `sendToPlayers` | true | Send LODs to other players |
+| `farPlayers` | true | Show other players beyond the view distance on the LODs, with what they ride |
 | `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
 
 ## Commands
