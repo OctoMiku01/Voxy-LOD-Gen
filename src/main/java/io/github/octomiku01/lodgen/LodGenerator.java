@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,8 +29,10 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkTrackingView;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -47,6 +50,11 @@ import org.jetbrains.annotations.Nullable;
 final class LodGenerator {
     private static final long SAVE_INTERVAL_MILLIS = 60_000;
     private static final long STATS_INTERVAL_MILLIS = 10_000;
+    /**
+     * The speed shown is the average over this long: chunks with features are finished a whole tile at a time, which
+     * can take longer than the stats interval
+     */
+    private static final long RATE_WINDOW_MILLIS = 60_000;
     private static final long RETRY_MILLIS = 2_000;
     /** Moving this many chunks restarts the search at the player, so nearby gaps are filled first */
     private static final int RESCAN_DISTANCE = 8;
@@ -55,7 +63,8 @@ final class LodGenerator {
     private static final UUID NO_PLAYER = new UUID(0, 0);
 
     /** Where a player who gets LODs is; published by the server thread */
-    private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, float yaw, @Nullable ServerPlayer player) {
+    private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, float yaw, int viewDistance,
+            @Nullable ServerPlayer player) {
     }
 
     /** A walk through square rings around a player, see {@link #walk} */
@@ -97,6 +106,8 @@ final class LodGenerator {
         volatile boolean rescan;
         volatile long pausedUntil;
         // scheduler thread only
+        /** The view distance the walks left out, see {@link #queueNext} */
+        int viewDistance;
         int centerX;
         int centerZ;
         /** Terrain everywhere; in the single pass also the details up to featureRadius */
@@ -366,6 +377,10 @@ final class LodGenerator {
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicLong generated = new AtomicLong();
+    // What the LOD chunks built so far are: only terrain, with features, or read from real chunks in the save
+    private final AtomicLong builtTerrain = new AtomicLong();
+    private final AtomicLong builtFeatures = new AtomicLong();
+    private final AtomicLong builtSaved = new AtomicLong();
     private final AtomicLong sent = new AtomicLong();
     private final AtomicInteger errors = new AtomicInteger();
     /** Workers wake the scheduler through this as soon as they finish a chunk */
@@ -410,10 +425,13 @@ final class LodGenerator {
                 continue;
             }
             ChunkPos pos = player.chunkPosition();
-            current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player.getYRot(), player));
+            // The chunks the game sends this player itself
+            int viewDistance = Mth.clamp(player.requestedViewDistance(), 2, this.server.getPlayerList().getViewDistance());
+            current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player.getYRot(),
+                    viewDistance, player));
         }
         if (current.isEmpty() && this.benchmark) {
-            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, null));
+            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, 0, null));
         }
         this.viewers = List.copyOf(current);
     }
@@ -437,6 +455,8 @@ final class LodGenerator {
         StringBuilder text = new StringBuilder(this.paused ? "[paused] " : "");
         text.append(String.format("%.1f chunks/s, %d in progress, %d threads, %d player(s), %d sent over the network",
                 this.rate, this.inFlight.get(), this.threads(), current.size(), this.sent.get()));
+        text.append(String.format("; built since the start: %d (%d terrain only, %d with features, %d from the save)",
+                this.generated.get(), this.builtTerrain.get(), this.builtFeatures.get(), this.builtSaved.get()));
         Viewer viewer = asking == null ? null : this.viewerOf(asking.getUUID());
         if (viewer == null && current.size() == 1) {
             viewer = current.getFirst();
@@ -506,6 +526,9 @@ final class LodGenerator {
         long lastSave = System.currentTimeMillis();
         long lastStats = lastSave;
         long generatedAtLastStats = 0;
+        // {time, chunks generated by then}, oldest first
+        ArrayDeque<long[]> samples = new ArrayDeque<>();
+        samples.add(new long[] {lastSave, 0});
         while (this.running) {
             try {
                 boolean full = false;
@@ -517,7 +540,12 @@ final class LodGenerator {
                 long now = System.currentTimeMillis();
                 if (now - lastStats >= STATS_INTERVAL_MILLIS) {
                     long total = this.generated.get();
-                    this.rate = (total - generatedAtLastStats) * 1000.0 / (now - lastStats);
+                    samples.add(new long[] {now, total});
+                    while (now - samples.getFirst()[0] > RATE_WINDOW_MILLIS) {
+                        samples.removeFirst();
+                    }
+                    long[] oldest = samples.getFirst();
+                    this.rate = now == oldest[0] ? 0 : (total - oldest[1]) * 1000.0 / (now - oldest[0]);
                     if (total != generatedAtLastStats) {
                         LodGen.LOGGER.info("{}", this.status(null));
                     }
@@ -667,11 +695,14 @@ final class LodGenerator {
         if (progress.tokens < 1) {
             return false;
         }
-        int minRing = this.server.getPlayerList().getViewDistance() + this.config.viewDistanceMargin + 1;
-        if (progress.terrain.ring < 0 || progress.rescan
+        int viewDistance = viewer.viewDistance == 0 ? 0 : viewer.viewDistance + this.config.viewDistanceMargin;
+        // The game loads a circle: the first ring that reaches beyond it is the one through its diagonal
+        int minRing = Math.max(1, (int) (viewDistance / Math.sqrt(2)));
+        if (progress.terrain.ring < 0 || progress.rescan || progress.viewDistance != viewDistance
                 || Math.max(Math.abs(viewer.chunkX - progress.centerX), Math.abs(viewer.chunkZ - progress.centerZ)) >= RESCAN_DISTANCE) {
             progress.centerX = viewer.chunkX;
             progress.centerZ = viewer.chunkZ;
+            progress.viewDistance = viewDistance;
             progress.terrain.start(minRing, viewer.yaw);
             progress.details.start(minRing, viewer.yaw);
             progress.rescan = false;
@@ -731,7 +762,9 @@ final class LodGenerator {
                 case 2 -> { dx = ring - offset; dz = ring; }
                 default -> { dx = -ring; dz = ring - offset; }
             }
-            if ((long) dx * dx + (long) dz * dz > radiusSquared) {
+            if ((long) dx * dx + (long) dz * dz > radiusSquared
+                    || progress.viewDistance > 0 && ChunkTrackingView.isWithinDistance(0, 0, progress.viewDistance, dx, dz, false)) {
+                // Beyond the radius, or a chunk the game shows itself
                 continue;
             }
             int chunkX = progress.centerX + dx;
@@ -828,6 +861,7 @@ final class LodGenerator {
                 }
                 if (chunks != null) {
                     this.generated.addAndGet(chunks.size());
+                    (task.savedAt != 0 ? this.builtSaved : task.features ? this.builtFeatures : this.builtTerrain).addAndGet(chunks.size());
                 }
             } catch (Throwable t) {
                 if (!this.running) {
