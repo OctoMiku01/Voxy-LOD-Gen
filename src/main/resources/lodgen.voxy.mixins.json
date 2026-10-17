@@ -5,6 +5,7 @@
 	"compatibilityLevel": "JAVA_25",
 	"client": [
 		"RenderPipelineFactoryMixin",
+		"VoxyClientMixin",
 		"VoxyRenderSystemMixin"
 	],
 	"injectors": {

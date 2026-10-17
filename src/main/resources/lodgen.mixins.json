@@ -15,7 +15,8 @@
 		"map.GameRendererMixin",
 		"map.HudMixin",
 		"map.LevelMixin",
-		"map.LevelRendererMixin"
+		"map.LevelRendererMixin",
+		"map.ScreenEffectRendererMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

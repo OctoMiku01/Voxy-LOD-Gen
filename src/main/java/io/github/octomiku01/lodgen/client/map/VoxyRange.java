@@ -4,6 +4,10 @@ import io.github.octomiku01.lodgen.LodGen;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
+import me.cortex.voxy.common.world.service.VoxelIngestService;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 /**
  * Voxy keeps LODs only within its render distance around the camera, and fades them out toward its edge. Zoomed out,
@@ -23,6 +27,7 @@ final class VoxyRange {
     /** Voxy's own render distance while the map has a wider one, or -1 */
     private static float original = -1;
     private static boolean broken;
+    private static boolean ingestBroken;
 
     private VoxyRange() {
     }
@@ -52,6 +57,32 @@ final class VoxyRange {
             broken = true;
             LodGen.LOGGER.warn("Could not widen Voxy's render distance for the 3D map", e);
             restore();
+        }
+    }
+
+    /**
+     * Hands Voxy the chunks the game has loaded. It takes them in when they load, but only if their light is there
+     * already, which it often is not yet: those only come when they unload. With only LODs on the map they are needed.
+     */
+    static void ingestLoadedChunks(Minecraft minecraft) {
+        if (ingestBroken || minecraft.level == null || minecraft.player == null) {
+            return;
+        }
+        try {
+            int distance = minecraft.options.getEffectiveRenderDistance() + 1;
+            int centerX = minecraft.player.chunkPosition().x();
+            int centerZ = minecraft.player.chunkPosition().z();
+            for (int x = centerX - distance; x <= centerX + distance; x++) {
+                for (int z = centerZ - distance; z <= centerZ + distance; z++) {
+                    LevelChunk chunk = minecraft.level.getChunkSource().getChunk(x, z, ChunkStatus.FULL, false);
+                    if (chunk != null) {
+                        VoxelIngestService.tryAutoIngestChunk(chunk);
+                    }
+                }
+            }
+        } catch (RuntimeException | LinkageError e) {
+            ingestBroken = true;
+            LodGen.LOGGER.warn("Could not hand the loaded chunks to Voxy for the 3D map", e);
         }
     }
 

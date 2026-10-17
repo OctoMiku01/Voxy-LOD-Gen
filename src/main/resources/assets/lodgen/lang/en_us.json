@@ -36,7 +36,7 @@
   "key.category.lodgen.main": "Voxy LOD Gen",
   "lodgen.map.title": "3D Map",
   "lodgen.map.unsupported.title": "No map here",
-  "lodgen.map.unsupported.nether": "The Nether's roof would hide everything.",
+  "lodgen.map.unsupported.nether": "Voxy could not be cut open here, the roof would hide everything.",
   "lodgen.map.player": "Player",
   "lodgen.map.camera": "Map",
   "lodgen.map.zoom": "zoom",
@@ -64,5 +64,9 @@
   "lodgen.map.key.center": "center",
   "lodgen.map.key.close": "close",
   "config.lodgen.mapRadius": "Map reach",
-  "config.lodgen.mapRadius.tooltip": "While a player has the 3D map open, the terrain where it looks is generated first, up to this far from them (in chunks), also beyond the reach. 0 turns this off"
+  "config.lodgen.mapRadius.tooltip": "While a player has the 3D map open, the terrain where it looks is generated first, up to this far from them (in chunks), also beyond the reach. 0 turns this off",
+  "lodgen.map.cut": "Cut open at Y %s",
+  "lodgen.map.key.cut.button": "PgUp/PgDn",
+  "lodgen.map.key.cut": "cut",
+  "lodgen.map.settings.onlyLods": "Only LODs"
 }

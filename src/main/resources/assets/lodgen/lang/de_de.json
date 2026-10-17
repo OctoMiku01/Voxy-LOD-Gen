@@ -36,7 +36,7 @@
   "key.category.lodgen.main": "Voxy LOD Gen",
   "lodgen.map.title": "3D-Karte",
   "lodgen.map.unsupported.title": "Hier gibt es keine Karte",
-  "lodgen.map.unsupported.nether": "Das Dach des Nethers würde alles verdecken.",
+  "lodgen.map.unsupported.nether": "Voxy ließ sich hier nicht aufschneiden, das Dach würde alles verdecken.",
   "lodgen.map.player": "Spieler",
   "lodgen.map.camera": "Karte",
   "lodgen.map.zoom": "Zoom",
@@ -64,5 +64,9 @@
   "lodgen.map.key.center": "zu mir",
   "lodgen.map.key.close": "schließen",
   "config.lodgen.mapRadius": "Karten-Reichweite",
-  "config.lodgen.mapRadius.tooltip": "Solange ein Spieler die 3D-Karte offen hat, wird das Gelände dort, wohin sie schaut, zuerst erzeugt, bis zu dieser Entfernung (in Chunks) von ihm, auch über die Reichweite hinaus. 0 schaltet das ab"
+  "config.lodgen.mapRadius.tooltip": "Solange ein Spieler die 3D-Karte offen hat, wird das Gelände dort, wohin sie schaut, zuerst erzeugt, bis zu dieser Entfernung (in Chunks) von ihm, auch über die Reichweite hinaus. 0 schaltet das ab",
+  "lodgen.map.cut": "Aufgeschnitten bei Y %s",
+  "lodgen.map.key.cut.button": "Bild↑/↓",
+  "lodgen.map.key.cut": "Schnitt",
+  "lodgen.map.settings.onlyLods": "Nur LODs"
 }

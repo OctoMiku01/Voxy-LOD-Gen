@@ -47,6 +47,14 @@ public class MapScreen extends Screen {
     /** Where the map looks is sent this often, and again right away once it moved this many chunks */
     private static final int FOCUS_INTERVAL_TICKS = 20;
     private static final int FOCUS_MOVE_CHUNKS = 2;
+    private static final int CUT_SLIDER_WIDTH = 156;
+    private static final int CUT_SLIDER_HEIGHT = 36;
+    /** Frames in the Nether to wait for the hook into Voxy's near plane before giving up on the Nether */
+    private static final int NEAR_HOOK_FRAMES = 40;
+    /** Where the Nether is cut open, kept between openings of the map */
+    private static int netherCut = 120;
+    /** Voxy could not be cut open: the Nether stays closed, its roof would hide everything */
+    private static boolean netherBroken;
 
     private final KeyMapping openKey;
     /** init runs again on every resize */
@@ -86,7 +94,12 @@ public class MapScreen extends Screen {
     private int pauseRowY = -1;
     private int speedRowY = -1;
     private int timeRowY = -1;
+    private int lodsRowY = -1;
     private int focusTicks;
+    private int cutSliderX = -1;
+    private int cutSliderY = -1;
+    private boolean cutDragging;
+    private int netherFrames;
     private int sentFocusX = Integer.MIN_VALUE;
     private int sentFocusZ;
     private int sentFocusRadius;
@@ -110,6 +123,9 @@ public class MapScreen extends Screen {
         if (!opened) {
             opened = true;
             ShaderMap.open(minecraft);
+            if (MapSettings.get().onlyLods()) {
+                VoxyRange.ingestLoadedChunks(minecraft);
+            }
         }
     }
 
@@ -126,6 +142,7 @@ public class MapScreen extends Screen {
         }
         updateSmoothControls();
         syncWorldCamera();
+        checkNetherCut();
         drawPlayers(g, delta);
         drawWorldViewerOverlay(g, mouseX, mouseY);
         drawOpeningAnimation(g);
@@ -342,14 +359,79 @@ public class MapScreen extends Screen {
         if (isUnsupportedDimension()) {
             MapCamera.deactivate();
         } else {
+            if (isNether()) {
+                // The map plane is the cut: dragging and zooming keep its points under the mouse
+                viewCenterY = netherCut;
+            }
             MapCamera.update(minecraft, viewCenterX, viewCenterY, viewCenterZ, viewYaw, viewPitch, blocksPerPixel);
             VoxyRange.cover(MapCamera.reach());
         }
     }
 
-    /** The Nether's roof would hide everything */
+    /** The Nether's roof would hide everything, unless Voxy can be cut open below it */
     private boolean isUnsupportedDimension() {
+        return netherBroken && isNether();
+    }
+
+    private boolean isNether() {
         return minecraft != null && minecraft.level != null && minecraft.level.dimension() == Level.NETHER;
+    }
+
+    /** Voxy draws the roof unless the hook into its near plane took hold; it shows within a few frames */
+    private void checkNetherCut() {
+        if (!isNether() || MapCamera.voxyNearSeen || netherBroken) {
+            return;
+        }
+        try {
+            if (me.cortex.voxy.client.core.IVoxyRenderSystemHolder.getNullable() == null) {
+                return;
+            }
+        } catch (LinkageError e) {
+            return;
+        }
+        if (++netherFrames > NEAR_HOOK_FRAMES) {
+            netherBroken = true;
+            MapCamera.deactivate();
+            io.github.octomiku01.lodgen.LodGen.LOGGER.warn("Could not cut Voxy open below the Nether's roof, the 3D map stays closed there");
+        }
+    }
+
+    private int cutMin() {
+        return minecraft.level.dimensionType().minY();
+    }
+
+    private int cutMax() {
+        return minecraft.level.dimensionType().minY() + minecraft.level.dimensionType().logicalHeight() - 1;
+    }
+
+    private void setCut(int y) {
+        netherCut = Mth.clamp(y, cutMin(), cutMax());
+        syncWorldCamera();
+    }
+
+    /** In the Nether: where the roof is cut off, from the bottom of the world up to just below the roof */
+    private void drawCutSlider(GuiGraphicsExtractor g, int slide) {
+        cutSliderX = width - CUT_SLIDER_WIDTH - HUD_MARGIN;
+        cutSliderY = settingsButtonY + settingsButtonH + HUD_GAP;
+        drawGlassPanel(g, cutSliderX, cutSliderY, CUT_SLIDER_WIDTH, CUT_SLIDER_HEIGHT, 0xAA030914, 0xFF3BA4FF);
+        g.text(minecraft.font, Component.translatable("lodgen.map.cut", netherCut), cutSliderX + 10, cutSliderY + 5, 0xFFE9F2FF);
+        int trackX = cutSliderX + 10;
+        int trackW = CUT_SLIDER_WIDTH - 20;
+        int trackY = cutSliderY + 24;
+        g.fill(trackX, trackY - 1, trackX + trackW, trackY + 1, 0xFF3BA4FF);
+        double share = (netherCut - cutMin()) / (double) Math.max(1, cutMax() - cutMin());
+        int knobX = trackX + (int) Math.round(share * trackW);
+        g.fill(knobX - 3, trackY - 5, knobX + 3, trackY + 5, cutDragging ? 0xFFFFFFFF : 0xFF7DEBFF);
+    }
+
+    private boolean isInsideCutSlider(double mouseX, double mouseY) {
+        return isNether() && cutSliderX >= 0 && mouseX >= cutSliderX && mouseX <= cutSliderX + CUT_SLIDER_WIDTH
+                && mouseY >= cutSliderY && mouseY <= cutSliderY + CUT_SLIDER_HEIGHT;
+    }
+
+    private void dragCut(double mouseX) {
+        double share = Mth.clamp((mouseX - cutSliderX - 10) / (CUT_SLIDER_WIDTH - 20), 0.0, 1.0);
+        setCut(cutMin() + (int) Math.round(share * (cutMax() - cutMin())));
     }
 
     private void drawUnsupportedDimension(GuiGraphicsExtractor g) {
@@ -412,6 +494,9 @@ public class MapScreen extends Screen {
 
         int footerTop = drawFooter(g, slide);
         drawSettingsButton(g, mouseX, mouseY, slide);
+        if (isNether()) {
+            drawCutSlider(g, slide);
+        }
         if (settingsOpen) {
             drawSettingsPanel(g, footerTop);
         }
@@ -444,7 +529,7 @@ public class MapScreen extends Screen {
     private void drawSettingsPanel(GuiGraphicsExtractor g, int footerTop) {
         MapSettings settings = MapSettings.get();
         settingsPanelW = Math.min(360, width - HUD_MARGIN * 2);
-        settingsPanelH = 118;
+        settingsPanelH = 142;
         settingsPanelX = width - settingsPanelW - HUD_MARGIN;
         settingsPanelY = Math.max(HUD_MARGIN, footerTop - settingsPanelH - HUD_GAP);
         drawGlassPanel(g, settingsPanelX, settingsPanelY, settingsPanelW, settingsPanelH, 0xDD030914, 0xFF3BA4FF);
@@ -454,10 +539,12 @@ public class MapScreen extends Screen {
         pauseRowY = y + 20;
         speedRowY = y + 44;
         timeRowY = y + 68;
+        lodsRowY = y + 92;
         g.text(minecraft.font, Component.translatable("lodgen.map.settings.title"), x, y, 0xFFFFFFFF);
         drawSettingValue(g, x, pauseRowY, "lodgen.map.settings.pause", onOff(settings.pauseSingleplayer), false);
         drawSettingValue(g, x, speedRowY, "lodgen.map.settings.speed", String.format("%.2fx", settings.cameraSpeed), true);
         drawSettingValue(g, x, timeRowY, "lodgen.map.settings.time", settings.timeOfDay.label().getString(), false);
+        drawSettingValue(g, x, lodsRowY, "lodgen.map.settings.onlyLods", onOff(settings.onlyLods), false);
     }
 
     private void drawSettingValue(GuiGraphicsExtractor g, int x, int y, String labelKey, String value, boolean plusMinus) {
@@ -517,7 +604,8 @@ public class MapScreen extends Screen {
     }
 
     private String[][] keyHints() {
-        String[] keys = {"drag", "rotate", "move", "fast", "zoom", "center", "close"};
+        String[] keys = isNether() ? new String[] {"drag", "rotate", "move", "fast", "zoom", "cut", "center", "close"}
+                : new String[] {"drag", "rotate", "move", "fast", "zoom", "center", "close"};
         String[][] hints = new String[keys.length][];
         for (int i = 0; i < keys.length; i++) {
             String button = keys[i].equals("close")
@@ -569,6 +657,11 @@ public class MapScreen extends Screen {
             settings.changeCameraSpeed(mouseX < settingsPanelX + settingsPanelW / 2.0 ? -0.25 : 0.25);
         } else if (isInsideSettingsRow(mouseX, mouseY, timeRowY)) {
             settings.cycleTimeOfDay();
+        } else if (isInsideSettingsRow(mouseX, mouseY, lodsRowY)) {
+            settings.toggleOnlyLods();
+            if (settings.onlyLods()) {
+                VoxyRange.ingestLoadedChunks(minecraft);
+            }
         }
         return true;
     }
@@ -580,7 +673,9 @@ public class MapScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (scrollY != 0.0) {
+        if (scrollY != 0.0 && isInsideCutSlider(mouseX, mouseY)) {
+            setCut(netherCut + (int) Math.signum(scrollY));
+        } else if (scrollY != 0.0) {
             zoomAt(mouseX, mouseY, Math.pow(0.82, scrollY));
         }
         return true;
@@ -602,6 +697,11 @@ public class MapScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && handleSettingsClick(event.x(), event.y())) {
+            return true;
+        }
+        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && isInsideCutSlider(event.x(), event.y())) {
+            cutDragging = true;
+            dragCut(event.x());
             return true;
         }
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1) {
@@ -627,6 +727,7 @@ public class MapScreen extends Screen {
     public boolean mouseReleased(MouseButtonEvent event) {
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1) {
             dragging = false;
+            cutDragging = false;
             return true;
         }
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
@@ -638,6 +739,10 @@ public class MapScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (cutDragging) {
+            dragCut(event.x());
+            return true;
+        }
         if (dragging) {
             panByPixels(event.x() - dragLastMouseX, event.y() - dragLastMouseY);
             dragLastMouseX = event.x();
@@ -663,6 +768,10 @@ public class MapScreen extends Screen {
         if (key == GLFW.GLFW_KEY_W || key == GLFW.GLFW_KEY_S || key == GLFW.GLFW_KEY_A || key == GLFW.GLFW_KEY_D
                 || key == GLFW.GLFW_KEY_UP || key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_LEFT || key == GLFW.GLFW_KEY_RIGHT) {
             // Held keys move the camera, see updateSmoothControls
+            return true;
+        }
+        if ((key == GLFW.GLFW_KEY_PAGE_UP || key == GLFW.GLFW_KEY_PAGE_DOWN) && isNether()) {
+            setCut(netherCut + (key == GLFW.GLFW_KEY_PAGE_UP ? 4 : -4));
             return true;
         }
         if (key == GLFW.GLFW_KEY_C && minecraft.player != null) {

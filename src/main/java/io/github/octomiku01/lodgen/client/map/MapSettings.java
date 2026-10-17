@@ -19,6 +19,11 @@ public final class MapSettings {
     /** The single player game pauses while the map is open */
     boolean pauseSingleplayer = true;
     double cameraSpeed = 1.0;
+    /**
+     * Draw the real chunks near the player from Voxy's LODs too: the game only draws them near its camera, which on
+     * the map is far away from them, and would leave a hole
+     */
+    boolean onlyLods = true;
     TimeOfDay timeOfDay = TimeOfDay.DAY;
 
     /** The time of day the map shows */
@@ -77,6 +82,15 @@ public final class MapSettings {
         } catch (IOException e) {
             LodGen.LOGGER.error("Could not write {}", FILE, e);
         }
+    }
+
+    public boolean onlyLods() {
+        return this.onlyLods;
+    }
+
+    void toggleOnlyLods() {
+        this.onlyLods = !this.onlyLods;
+        this.save();
     }
 
     public TimeOfDay timeOfDay() {
