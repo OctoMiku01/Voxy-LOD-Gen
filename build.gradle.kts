@@ -49,6 +49,10 @@ tasks.processResources {
     }
 }
 
+tasks.jar {
+    from("THIRD_PARTY_NOTICES")
+}
+
 loom {
     runs {
         named("server") {

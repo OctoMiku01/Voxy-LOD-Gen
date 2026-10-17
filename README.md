@@ -36,6 +36,12 @@ Other players beyond the view distance are shown on the LODs too, like with Voxy
 armor and what they hold, on what they ride (horses, boats...), lit as it is where they are, and with their name
 tags, which stay readable from far away but are hidden behind terrain. Up close the game shows the real ones again.
 
+With Voxy installed, `M` opens a 3D map: the camera rises high above you and shows the LODs from there, as far as
+they reach. Drag to move, wheel to zoom, middle mouse button to turn, `C` to come back to you. Fog, clouds, rain and
+the HUD are hidden while it is open, and the time of day can be chosen on it. With a shader pack on, the map shows
+the LODs alone in front of a plain background, as packs draw clouds and haze of their own. The map is adapted from
+[3D Maps Voxy Addon](https://github.com/raben12paste/3D-maps-Voxy-Addon) (MIT licensed).
+
 ## Installing
 
 - **Single player, and the host when playing with friends** (LAN, Essential...): install it next to Voxy. LODs are

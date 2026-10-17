@@ -21,7 +21,8 @@
 		]
 	},
 	"mixins": [
-		"lodgen.mixins.json"
+		"lodgen.mixins.json",
+		"lodgen.voxy.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=${loader_version}",

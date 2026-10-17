@@ -8,6 +8,15 @@
 		"StructurePaletteMixin",
 		"SynchedEntityDataAccessor"
 	],
+	"client": [
+		"map.CameraMixin",
+		"map.ClientClockManagerMixin",
+		"map.FogRendererMixin",
+		"map.GameRendererMixin",
+		"map.HudMixin",
+		"map.LevelMixin",
+		"map.LevelRendererMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	}

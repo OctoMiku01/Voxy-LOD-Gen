@@ -1,0 +1,13 @@
+{
+	"required": false,
+	"package": "io.github.octomiku01.lodgen.mixin.voxy",
+	"plugin": "io.github.octomiku01.lodgen.mixin.voxy.VoxyMixinPlugin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"RenderPipelineFactoryMixin",
+		"VoxyRenderSystemMixin"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}
