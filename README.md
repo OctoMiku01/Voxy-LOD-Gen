@@ -39,7 +39,10 @@ tags, which stay readable from far away but are hidden behind terrain. Up close 
 With Voxy installed, `M` opens a 3D map: the camera rises high above you and shows the LODs from there, as far as
 they reach. Drag to move, wheel to zoom, middle mouse button to turn, `C` to come back to you. Fog, clouds, rain and
 the HUD are hidden while it is open, and the time of day can be chosen on it. With a shader pack on, the map shows
-the LODs alone in front of a plain background, as packs draw clouds and haze of their own. The map is adapted from
+the LODs alone in front of a plain background, as packs draw clouds and haze of their own. While the map is open, the
+terrain around where it looks is generated first, also beyond `radius` (up to `mapRadius` from you): move it somewhere
+unexplored and watch the land appear. Every player in the dimension shows on it with their face and name (others only
+with `farPlayers` on). Both need the mod on the server, which then also limits them. The map is adapted from
 [3D Maps Voxy Addon](https://github.com/raben12paste/3D-maps-Voxy-Addon) (MIT licensed).
 
 ## Installing
@@ -62,6 +65,7 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 |---|---|---|
 | `radius` | 256 | How far LODs reach, in chunks |
 | `featureRadius` | 128 | Up to here LODs get features and structures, further away only terrain |
+| `mapRadius` | 1024 | How far from you the 3D map may lead generation to where it looks, in chunks; 0 turns it off |
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
 | `sendSavedChunks` | true | Explored chunks become LODs too, read from the save, and are sent again when they change |

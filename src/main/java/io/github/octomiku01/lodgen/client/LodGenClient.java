@@ -3,6 +3,8 @@ package io.github.octomiku01.lodgen.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
+import io.github.octomiku01.lodgen.MapPlayersPayload;
+import io.github.octomiku01.lodgen.client.map.MapPlayers;
 import io.github.octomiku01.lodgen.client.map.MapScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -25,12 +27,14 @@ public class LodGenClient implements ClientModInitializer {
             ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
                 ClientLodReceiver.clear();
                 FarEntities.reset();
+                MapPlayers.clear();
             });
             ClientPlayNetworking.registerGlobalReceiver(FarEntitiesPayload.TYPE, (payload, context) -> FarEntities.receive(payload, context.client()));
             ClientTickEvents.END_CLIENT_TICK.register(FarEntities::tick);
             LevelRenderEvents.COLLECT_SUBMITS.register(FarEntities::render);
 
             // The 3D map is what Voxy renders, seen from high above
+            ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE, (payload, context) -> MapPlayers.receive(payload));
             KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
             ClientTickEvents.END_CLIENT_TICK.register(client -> {

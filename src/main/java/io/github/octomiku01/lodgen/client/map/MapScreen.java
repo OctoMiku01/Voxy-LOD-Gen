@@ -1,6 +1,21 @@
 package io.github.octomiku01.lodgen.client.map;
 
+import io.github.octomiku01.lodgen.MapFocusPayload;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import io.github.octomiku01.lodgen.client.FarEntities;
+import io.github.octomiku01.lodgen.MapPlayersPayload;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.gui.components.PlayerFaceExtractor;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
@@ -29,6 +44,9 @@ public class MapScreen extends Screen {
     private static final int HUD_BUTTON_HEIGHT = 24;
     private static final int KEY_HINT_HEIGHT = 22;
     private static final int BG = 0xFF080810;
+    /** Where the map looks is sent this often, and again right away once it moved this many chunks */
+    private static final int FOCUS_INTERVAL_TICKS = 20;
+    private static final int FOCUS_MOVE_CHUNKS = 2;
 
     private final KeyMapping openKey;
     /** init runs again on every resize */
@@ -68,6 +86,10 @@ public class MapScreen extends Screen {
     private int pauseRowY = -1;
     private int speedRowY = -1;
     private int timeRowY = -1;
+    private int focusTicks;
+    private int sentFocusX = Integer.MIN_VALUE;
+    private int sentFocusZ;
+    private int sentFocusRadius;
 
     public MapScreen(KeyMapping openKey) {
         super(Component.translatable("lodgen.map.title"));
@@ -104,6 +126,7 @@ public class MapScreen extends Screen {
         }
         updateSmoothControls();
         syncWorldCamera();
+        drawPlayers(g, delta);
         drawWorldViewerOverlay(g, mouseX, mouseY);
         drawOpeningAnimation(g);
         super.extractRenderState(g, mouseX, mouseY, delta);
@@ -117,6 +140,29 @@ public class MapScreen extends Screen {
     @Override
     public void tick() {
         syncWorldCamera();
+        sendFocus();
+    }
+
+    /** Tells the server where the map looks, so the LODs there are made first */
+    private void sendFocus() {
+        if (isUnsupportedDimension() || !MapCamera.isActive() || !ClientPlayNetworking.canSend(MapFocusPayload.TYPE)) {
+            return;
+        }
+        int chunkX = Mth.floor(viewCenterX) >> 4;
+        int chunkZ = Mth.floor(viewCenterZ) >> 4;
+        // About half of what the screen shows across
+        double halfWidth = MapCamera.range() * Math.tan(Math.toRadians(MapCamera.fov()) / 2) * width / Math.max(1, height);
+        int radius = Math.max(4, (int) Math.ceil(halfWidth / 16));
+        boolean moved = sentFocusX == Integer.MIN_VALUE || Math.max(Math.abs(chunkX - sentFocusX), Math.abs(chunkZ - sentFocusZ)) >= FOCUS_MOVE_CHUNKS
+                || radius != sentFocusRadius;
+        if (!moved && ++focusTicks < FOCUS_INTERVAL_TICKS) {
+            return;
+        }
+        focusTicks = 0;
+        sentFocusX = chunkX;
+        sentFocusZ = chunkZ;
+        sentFocusRadius = radius;
+        ClientPlayNetworking.send(new MapFocusPayload(chunkX, chunkZ, radius));
     }
 
     private double openingProgress() {
@@ -177,9 +223,9 @@ public class MapScreen extends Screen {
         double forwardZ = Math.cos(viewYaw) * Math.cos(pitch);
         double rightX = Math.cos(viewYaw);
         double rightZ = Math.sin(viewYaw);
-        double upX = Math.sin(viewYaw) * Math.sin(pitch);
+        double upX = -Math.sin(viewYaw) * Math.sin(pitch);
         double upY = Math.cos(pitch);
-        double upZ = -Math.cos(viewYaw) * Math.sin(pitch);
+        double upZ = Math.cos(viewYaw) * Math.sin(pitch);
 
         double tanY = Math.tan(Math.toRadians(MapCamera.fov()) * 0.5);
         double tanX = tanY * width / (double) height;
@@ -196,6 +242,73 @@ public class MapScreen extends Screen {
             return null;
         }
         return new GroundPoint(MapCamera.x() + rayX * t, MapCamera.z() + rayZ * t);
+    }
+
+    /** Where a point of the world is on the screen, or null when it is behind the camera */
+    private double[] screenPointOf(Vec3 point) {
+        double pitch = Math.toRadians(MapCamera.pitch());
+        double dx = point.x - MapCamera.x();
+        double dy = point.y - MapCamera.y();
+        double dz = point.z - MapCamera.z();
+        double depth = -Math.sin(viewYaw) * Math.cos(pitch) * dx - Math.sin(pitch) * dy + Math.cos(viewYaw) * Math.cos(pitch) * dz;
+        if (depth < 1.0) {
+            return null;
+        }
+        double tanY = Math.tan(Math.toRadians(MapCamera.fov()) * 0.5);
+        double tanX = tanY * width / (double) height;
+        // As in mapPointAt: x counts to the left, y upward
+        double ndcX = (Math.cos(viewYaw) * dx + Math.sin(viewYaw) * dz) / (depth * tanX);
+        double ndcY = (-Math.sin(viewYaw) * Math.sin(pitch) * dx + Math.cos(pitch) * dy + Math.cos(viewYaw) * Math.sin(pitch) * dz) / (depth * tanY);
+        return new double[] {(1.0 - ndcX) * width / 2.0, (1.0 - ndcY) * height / 2.0};
+    }
+
+    /**
+     * Every player, with their face and name; this player in gold, on top. Those the client has (near, or far on the
+     * LODs) move smoothly; the server tells where the others are once a second.
+     */
+    private void drawPlayers(GuiGraphicsExtractor g, float partialTick) {
+        if (minecraft.level == null) {
+            return;
+        }
+        Set<UUID> shown = new HashSet<>();
+        List<AbstractClientPlayer> players = new ArrayList<>();
+        for (AbstractClientPlayer player : minecraft.level.players()) {
+            if (player != minecraft.player && !player.isSpectator()) {
+                players.add(player);
+            }
+        }
+        players.addAll(FarEntities.players());
+        for (AbstractClientPlayer player : players) {
+            shown.add(player.getUUID());
+            drawMarker(g, player.getPosition(partialTick), player.getSkin(), player.getName(), false);
+        }
+        for (MapPlayersPayload.Entry entry : MapPlayers.current(minecraft)) {
+            if (shown.contains(entry.uuid()) || minecraft.player != null && entry.uuid().equals(minecraft.player.getUUID())) {
+                continue;
+            }
+            PlayerInfo info = minecraft.getConnection() == null ? null : minecraft.getConnection().getPlayerInfo(entry.uuid());
+            PlayerSkin skin = info != null ? info.getSkin() : DefaultPlayerSkin.get(entry.uuid());
+            drawMarker(g, new Vec3(entry.x(), entry.y(), entry.z()), skin, Component.literal(entry.name()), false);
+        }
+        if (minecraft.player != null) {
+            drawMarker(g, minecraft.player.getPosition(partialTick), minecraft.player.getSkin(), minecraft.player.getName(), true);
+        }
+    }
+
+    private void drawMarker(GuiGraphicsExtractor g, Vec3 position, PlayerSkin skin, Component name, boolean self) {
+        double[] screen = screenPointOf(position);
+        if (screen == null || screen[0] < -16 || screen[0] > width + 16 || screen[1] < -16 || screen[1] > height + 16) {
+            return;
+        }
+        int x = (int) Math.round(screen[0]);
+        int y = (int) Math.round(screen[1]);
+        int size = self ? 12 : 10;
+        g.fill(x - size / 2 - 1, y - size / 2 - 1, x + size / 2 + 1, y + size / 2 + 1, self ? 0xFFFFC23B : 0xFF7DEBFF);
+        PlayerFaceExtractor.extractRenderState(g, skin, x - size / 2, y - size / 2, size);
+        int nameWidth = minecraft.font.width(name);
+        int nameY = y - size / 2 - 12;
+        g.fill(x - nameWidth / 2 - 2, nameY - 1, x + nameWidth / 2 + 2, nameY + 9, 0x99030914);
+        g.centeredText(minecraft.font, name, x, nameY, self ? 0xFFFFE08A : 0xFFE9F2FF);
     }
 
     private void keepMapPointUnderMouse(GroundPoint anchor, double mouseX, double mouseY) {
@@ -230,6 +343,7 @@ public class MapScreen extends Screen {
             MapCamera.deactivate();
         } else {
             MapCamera.update(minecraft, viewCenterX, viewCenterY, viewCenterZ, viewYaw, viewPitch, blocksPerPixel);
+            VoxyRange.cover(MapCamera.reach());
         }
     }
 
@@ -580,7 +694,12 @@ public class MapScreen extends Screen {
     @Override
     public void removed() {
         MapCamera.deactivate();
+        // Before Voxy is made again for the shader pack, so the new one gets its own render distance
+        VoxyRange.restore();
         ShaderMap.close();
+        if (sentFocusX != Integer.MIN_VALUE && ClientPlayNetworking.canSend(MapFocusPayload.TYPE)) {
+            ClientPlayNetworking.send(new MapFocusPayload(0, 0, 0));
+        }
         super.removed();
     }
 

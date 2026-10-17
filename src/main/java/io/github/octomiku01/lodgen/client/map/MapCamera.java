@@ -19,6 +19,7 @@ public final class MapCamera {
     private static float pitch;
     private static float fov;
     private static float far;
+    private static double range;
 
     private MapCamera() {
     }
@@ -42,6 +43,7 @@ public final class MapCamera {
             fov = Mth.clamp((float) (70.0 * desiredRange / range), 6.0f, 70.0f);
         }
 
+        MapCamera.range = range;
         double pitchRadians = Math.toRadians(pitchDegrees);
         double horizontal = Math.cos(pitchRadians) * range;
         double forwardX = -Math.sin(yawRadians);
@@ -90,5 +92,15 @@ public final class MapCamera {
 
     public static float far() {
         return far;
+    }
+
+    /** How far the camera is from the point it looks at */
+    static double range() {
+        return range;
+    }
+
+    /** How far from the camera, horizontally, the map shows: to where it looks, and as far again beyond */
+    static double reach() {
+        return Math.cos(Math.toRadians(pitch)) * range + range;
     }
 }

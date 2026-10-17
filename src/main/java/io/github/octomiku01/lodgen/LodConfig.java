@@ -40,6 +40,8 @@ final class LodConfig {
     boolean sendToPlayers = true;
     /** Players beyond the view distance are shown to everyone who gets LODs, with what they ride */
     boolean farPlayers = true;
+    /** How far from the player (in chunks) the 3D map may lead generation to where it looks; 0 turns that off */
+    int mapRadius = 1024;
     /** Per player that gets LODs over the network; about 20 KiB each before the connection compresses them */
     int maxChunksPerSecondPerPlayer = 20;
 
@@ -76,6 +78,7 @@ final class LodConfig {
         this.threadsWhilePaused = Math.max(1, this.threadsWhilePaused);
         this.viewDistanceMargin = Math.max(0, this.viewDistanceMargin);
         this.featureRadius = Math.max(0, this.featureRadius);
+        this.mapRadius = Math.max(0, this.mapRadius);
         this.tileSize = Math.clamp(this.tileSize, 1, 32);
         this.maxChunksPerSecondPerPlayer = Math.max(1, this.maxChunksPerSecondPerPlayer);
     }

@@ -62,5 +62,7 @@
   "lodgen.map.key.zoom": "zoomen",
   "lodgen.map.key.center.button": "C",
   "lodgen.map.key.center": "zu mir",
-  "lodgen.map.key.close": "schließen"
+  "lodgen.map.key.close": "schließen",
+  "config.lodgen.mapRadius": "Karten-Reichweite",
+  "config.lodgen.mapRadius.tooltip": "Solange ein Spieler die 3D-Karte offen hat, wird das Gelände dort, wohin sie schaut, zuerst erzeugt, bis zu dieser Entfernung (in Chunks) von ihm, auch über die Reichweite hinaus. 0 schaltet das ab"
 }

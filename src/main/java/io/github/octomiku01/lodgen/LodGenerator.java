@@ -61,10 +61,23 @@ final class LodGenerator {
     private static final int MAX_LOGGED_ERRORS = 10;
     /** Players without a profile, e.g. the benchmark, share this id */
     private static final UUID NO_PLAYER = new UUID(0, 0);
+    /** The most the 3D map may ask for around where it looks, in chunks */
+    private static final int MAX_FOCUS_RADIUS = 64;
+    /** The map sends where it looks every second while open; without that for this long it counts as closed */
+    private static final long FOCUS_TIMEOUT_MILLIS = 5_000;
+    /** Moving the map this many chunks restarts the search at the new place */
+    private static final int FOCUS_MOVE = 4;
 
-    /** Where a player who gets LODs is; published by the server thread */
+    /**
+     * Where a player who gets LODs is; published by the server thread. While their 3D map is open, focusRadius is
+     * above 0 and the chunks around where it looks come first.
+     */
     private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, float yaw, int viewDistance,
-            @Nullable ServerPlayer player) {
+            @Nullable ServerPlayer player, int focusX, int focusZ, int focusRadius) {
+    }
+
+    /** Where the 3D map of a player looks, as they sent it */
+    private record MapFocus(ResourceKey<Level> dimension, int chunkX, int chunkZ, int radius, long time) {
     }
 
     /** A walk through square rings around a player, see {@link #walk} */
@@ -114,6 +127,11 @@ final class LodGenerator {
         final Cursor terrain = new Cursor();
         /** The details up to featureRadius, when terrain comes first */
         final Cursor details = new Cursor();
+        /** Terrain around where the 3D map looks, while it is open */
+        final Cursor focus = new Cursor();
+        int focusX;
+        int focusZ;
+        int focusRadius;
         double tokens;
         long lastRefill;
 
@@ -386,6 +404,7 @@ final class LodGenerator {
     /** Workers wake the scheduler through this as soon as they finish a chunk */
     private final Object workerFinished = new Object();
     private volatile List<Viewer> viewers = List.of();
+    private final Map<UUID, MapFocus> mapFocus = new ConcurrentHashMap<>();
     private volatile boolean running = true;
     private volatile boolean paused;
     private volatile double rate;
@@ -428,12 +447,63 @@ final class LodGenerator {
             // The chunks the game sends this player itself
             int viewDistance = Mth.clamp(player.requestedViewDistance(), 2, this.server.getPlayerList().getViewDistance());
             current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player.getYRot(),
-                    viewDistance, player));
+                    viewDistance, player, 0, 0, 0));
         }
         if (current.isEmpty() && this.benchmark) {
-            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, 0, null));
+            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, 0, null, 0, 0, 0));
         }
         this.viewers = List.copyOf(current);
+    }
+
+    /**
+     * The viewer with where their 3D map looks, if it is open. Not done on the server tick: the map pauses a single
+     * player game, which stops the ticks but still takes in what the client sends.
+     */
+    private Viewer withFocus(Viewer viewer, long now) {
+        MapFocus focus = this.mapFocus.get(viewer.id);
+        if (focus == null || this.config.mapRadius <= 0 || focus.dimension != viewer.level.dimension() || now - focus.time >= FOCUS_TIMEOUT_MILLIS) {
+            return viewer;
+        }
+        // Not further from the player than the server allows
+        int dx = focus.chunkX - viewer.chunkX;
+        int dz = focus.chunkZ - viewer.chunkZ;
+        double scale = Math.min(1.0, this.config.mapRadius / Math.max(1.0, Math.max(Math.abs(dx), Math.abs(dz))));
+        return new Viewer(viewer.id, viewer.name, viewer.host, viewer.level, viewer.chunkX, viewer.chunkZ, viewer.yaw, viewer.viewDistance,
+                viewer.player, viewer.chunkX + (int) Math.round(dx * scale), viewer.chunkZ + (int) Math.round(dz * scale), focus.radius);
+    }
+
+    /**
+     * Server thread, once a second: everyone with the 3D map open learns where the other players in their dimension
+     * are, also those beyond the LODs. Not while the game is paused, but then nobody else is there anyway.
+     */
+    void sendMapPlayers() {
+        if (this.mapFocus.isEmpty() || !this.config.farPlayers) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
+            MapFocus focus = this.mapFocus.get(player.getUUID());
+            if (focus == null || now - focus.time >= FOCUS_TIMEOUT_MILLIS || !ServerPlayNetworking.canSend(player, MapPlayersPayload.TYPE)) {
+                continue;
+            }
+            List<MapPlayersPayload.Entry> others = new ArrayList<>();
+            for (ServerPlayer other : ((ServerLevel) player.level()).players()) {
+                if (other != player && !other.isSpectator()) {
+                    others.add(new MapPlayersPayload.Entry(other.getUUID(), other.getScoreboardName(), other.getX(), other.getY(), other.getZ()));
+                }
+            }
+            ServerPlayNetworking.send(player, new MapPlayersPayload(player.level().dimension(), others));
+        }
+    }
+
+    /** Network: where the 3D map of the player looks now, or that it was closed */
+    void setMapFocus(ServerPlayer player, MapFocusPayload payload) {
+        if (payload.radius() <= 0) {
+            this.mapFocus.remove(player.getUUID());
+        } else {
+            this.mapFocus.put(player.getUUID(), new MapFocus(player.level().dimension(), payload.chunkX(), payload.chunkZ(),
+                    Math.min(payload.radius(), MAX_FOCUS_RADIUS), System.currentTimeMillis()));
+        }
     }
 
     void setPaused(boolean paused) {
@@ -462,6 +532,9 @@ final class LodGenerator {
             viewer = current.getFirst();
         }
         if (viewer != null) {
+            viewer = this.withFocus(viewer, System.currentTimeMillis());
+        }
+        if (viewer != null) {
             Dimension dimension = this.dimensions.get(viewer.level.dimension());
             if (dimension != null && dimension.builder == null) {
                 text.append("; ").append(viewer.level.dimension().identifier()).append(" is not supported");
@@ -470,6 +543,9 @@ final class LodGenerator {
                 String rings = ringStatus(progress.terrain.shownRing, this.config.radius);
                 if (this.config.terrainFirst) {
                     rings = "terrain " + rings + ", details " + ringStatus(progress.details.shownRing, this.config.featureRadius);
+                }
+                if (viewer.focusRadius > 0) {
+                    rings += ", map at " + viewer.focusX * 16 + ", " + viewer.focusZ * 16 + " " + ringStatus(progress.focus.shownRing, viewer.focusRadius);
                 }
                 text.append(String.format("; %s in %s: %s, %d LOD chunks", viewer.name, viewer.level.dimension().identifier(),
                         rings, progress.doneCount()));
@@ -595,7 +671,8 @@ final class LodGenerator {
         long now = System.currentTimeMillis();
         List<Viewer> active = new ArrayList<>(current.size());
         Map<Viewer, Progress> progresses = new HashMap<>();
-        for (Viewer viewer : current) {
+        for (Viewer published : current) {
+            Viewer viewer = this.withFocus(published, now);
             Dimension dimension = this.dimensions.computeIfAbsent(viewer.level.dimension(), key -> new Dimension(viewer.level));
             Progress progress = this.progressOf(viewer);
             if (dimension.builder == null || now < progress.pausedUntil) {
@@ -705,10 +782,32 @@ final class LodGenerator {
             progress.viewDistance = viewDistance;
             progress.terrain.start(minRing, viewer.yaw);
             progress.details.start(minRing, viewer.yaw);
+            progress.focus.ring = -1;
             progress.rescan = false;
         }
+        if (viewer.focusRadius > 0) {
+            // The 3D map is open: first the terrain around where it looks, nearest first
+            if (progress.focus.ring < 0 || progress.focusRadius != viewer.focusRadius
+                    || Math.max(Math.abs(viewer.focusX - progress.focusX), Math.abs(viewer.focusZ - progress.focusZ)) >= FOCUS_MOVE) {
+                progress.focusX = viewer.focusX;
+                progress.focusZ = viewer.focusZ;
+                progress.focusRadius = viewer.focusRadius;
+                progress.focus.start(0, viewer.yaw);
+            }
+            if (progress.focus.ring <= progress.focusRadius) {
+                if (this.walk(viewer, progress, progress.focus, progress.focusX, progress.focusZ, progress.focusRadius, false)) {
+                    return true;
+                }
+                if (progress.focus.ring <= progress.focusRadius) {
+                    return false;
+                }
+            }
+        } else {
+            progress.focus.ring = -1;
+            progress.focus.shownRing = -1;
+        }
         if (!this.config.terrainFirst) {
-            return this.walk(viewer, progress, progress.terrain, this.config.radius, false);
+            return this.walk(viewer, progress, progress.terrain, progress.centerX, progress.centerZ, this.config.radius, false);
         }
         while (true) {
             boolean terrainDone = progress.terrain.ring > this.config.radius;
@@ -719,7 +818,7 @@ final class LodGenerator {
             boolean details = terrainDone || !detailsDone && 2 * progress.details.ring <= progress.terrain.ring;
             Cursor cursor = details ? progress.details : progress.terrain;
             int limit = details ? this.config.featureRadius : this.config.radius;
-            if (this.walk(viewer, progress, cursor, limit, details)) {
+            if (this.walk(viewer, progress, cursor, progress.centerX, progress.centerZ, limit, details)) {
                 return true;
             }
             if (cursor.ring <= limit) {
@@ -730,52 +829,56 @@ final class LodGenerator {
     }
 
     /**
-     * Walks square rings around the player, nearest first and starting where they look, to the next chunk they still
-     * need.
+     * Walks square rings around the player (or where their 3D map looks), nearest first and starting where they look,
+     * to the next chunk they still need.
      *
      * @param onlyDetails every chunk on this walk gets details; otherwise only up to featureRadius in a single pass
      * @return whether a chunk was queued for them
      */
-    private boolean walk(Viewer viewer, Progress progress, Cursor cursor, int limit, boolean onlyDetails) {
+    private boolean walk(Viewer viewer, Progress progress, Cursor cursor, int centerX, int centerZ, int limit, boolean onlyDetails) {
         Dimension dimension = this.dimensions.get(viewer.level.dimension());
         long radiusSquared = (long) limit * limit;
         while (cursor.ring <= limit) {
             int ring = cursor.ring;
             int index = cursor.ringIndex;
             cursor.shownRing = ring;
-            if (index >= 8 * ring) {
+            // Ring 0 is the center chunk alone
+            int ringSize = Math.max(1, 8 * ring);
+            if (index >= ringSize) {
                 cursor.start(cursor.ring + 1, viewer.yaw);
                 continue;
             }
             cursor.ringIndex++;
-            // From where the player looks, alternately one step further to each side
-            int step = (index + 1) / 2;
-            index = Math.floorMod(cursor.ringStart + (index % 2 == 1 ? step : -step), 8 * ring);
-
-            int side = index / (2 * ring);
-            int offset = index % (2 * ring);
-            int dx;
-            int dz;
-            switch (side) {
-                case 0 -> { dx = -ring + offset; dz = -ring; }
-                case 1 -> { dx = ring; dz = -ring + offset; }
-                case 2 -> { dx = ring - offset; dz = ring; }
-                default -> { dx = -ring; dz = ring - offset; }
+            int dx = 0;
+            int dz = 0;
+            if (ring > 0) {
+                // From where the player looks, alternately one step further to each side
+                int step = (index + 1) / 2;
+                index = Math.floorMod(cursor.ringStart + (index % 2 == 1 ? step : -step), ringSize);
+                int side = index / (2 * ring);
+                int offset = index % (2 * ring);
+                switch (side) {
+                    case 0 -> { dx = -ring + offset; dz = -ring; }
+                    case 1 -> { dx = ring; dz = -ring + offset; }
+                    case 2 -> { dx = ring - offset; dz = ring; }
+                    default -> { dx = -ring; dz = ring - offset; }
+                }
             }
-            if ((long) dx * dx + (long) dz * dz > radiusSquared
-                    || progress.viewDistance > 0 && ChunkTrackingView.isWithinDistance(0, 0, progress.viewDistance, dx, dz, false)) {
+            int chunkX = centerX + dx;
+            int chunkZ = centerZ + dz;
+            if ((long) dx * dx + (long) dz * dz > radiusSquared || progress.viewDistance > 0
+                    && ChunkTrackingView.isWithinDistance(progress.centerX, progress.centerZ, progress.viewDistance, chunkX, chunkZ, false)) {
                 // Beyond the radius, or a chunk the game shows itself
                 continue;
             }
-            int chunkX = progress.centerX + dx;
-            int chunkZ = progress.centerZ + dz;
             long key = pack(chunkX, chunkZ);
-            boolean features = onlyDetails || !this.config.terrainFirst && ring <= this.config.featureRadius;
+            // Around the 3D map only terrain: it is about seeing far quickly, the details follow near the player
+            boolean features = onlyDetails || cursor != progress.focus && !this.config.terrainFirst && ring <= this.config.featureRadius;
             int savedAt = dimension.saved.savedAt(chunkX, chunkZ);
             if (savedAt != 0) {
                 // A real chunk: its LOD comes from the save, with the players' builds, never from generated terrain.
                 // Sent once per version, by the walk that covers the whole radius
-                if (!this.config.sendSavedChunks || cursor != progress.terrain || progress.hasSaved(key, savedAt)) {
+                if (!this.config.sendSavedChunks || cursor == progress.details || progress.hasSaved(key, savedAt)) {
                     continue;
                 }
                 features = false;

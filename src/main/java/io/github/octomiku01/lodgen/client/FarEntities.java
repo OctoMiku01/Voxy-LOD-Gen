@@ -43,7 +43,7 @@ import org.jetbrains.annotations.Nullable;
  * other players, vehicles are only moved. Once the real player is near enough for the game to show it, the stand-in
  * is no longer drawn. Used on the client thread only.
  */
-final class FarEntities {
+public final class FarEntities {
     /** Like vanilla's interpolation of other players */
     private static final int LERP_STEPS = 3;
     private static final double VANILLA_NAME_TAG_DISTANCE = 64;
@@ -392,6 +392,17 @@ final class FarEntities {
         } catch (Throwable ignored) {
             // A broken modded vehicle; the stand-in is dropped anyway
         }
+    }
+
+    /** The players beyond the view distance shown on the LODs, e.g. for the 3D map */
+    public static List<RemotePlayer> players() {
+        List<RemotePlayer> players = new ArrayList<>();
+        for (Far far : ENTITIES.values()) {
+            if (far.entity instanceof RemotePlayer player && (level == null || !isShownByGame(player, level))) {
+                players.add(player);
+            }
+        }
+        return players;
     }
 
     static void clear() {

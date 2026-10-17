@@ -44,6 +44,9 @@ public final class LodConfigScreen {
         generation.addEntry(entries.startIntField(name("featureRadius"), config.featureRadius)
                 .setDefaultValue(defaults.featureRadius).setMin(0).setMax(4096).setTooltip(tooltip("featureRadius"))
                 .setSaveConsumer(value -> config.featureRadius = value).build());
+        generation.addEntry(entries.startIntField(name("mapRadius"), config.mapRadius)
+                .setDefaultValue(defaults.mapRadius).setMin(0).setMax(16384).setTooltip(tooltip("mapRadius"))
+                .setSaveConsumer(value -> config.mapRadius = value).build());
         generation.addEntry(entries.startBooleanToggle(name("terrainFirst"), config.terrainFirst)
                 .setDefaultValue(defaults.terrainFirst).setTooltip(tooltip("terrainFirst"))
                 .setSaveConsumer(value -> config.terrainFirst = value).build());
