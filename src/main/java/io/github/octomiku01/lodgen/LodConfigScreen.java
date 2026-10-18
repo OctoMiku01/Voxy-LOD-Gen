@@ -84,6 +84,14 @@ public final class LodConfigScreen {
         multiplayer.addEntry(entries.startIntField(name("maxChunksPerSecondPerPlayer"), config.maxChunksPerSecondPerPlayer)
                 .setDefaultValue(defaults.maxChunksPerSecondPerPlayer).setMin(1).setMax(1000).setTooltip(tooltip("maxChunksPerSecondPerPlayer"))
                 .setSaveConsumer(value -> config.maxChunksPerSecondPerPlayer = value).build());
+
+        ConfigCategory updates = builder.getOrCreateCategory(Component.translatable("config.lodgen.category.updates"));
+        updates.addEntry(entries.startBooleanToggle(name("checkForUpdates"), config.checkForUpdates)
+                .setDefaultValue(defaults.checkForUpdates).setTooltip(tooltip("checkForUpdates"))
+                .setSaveConsumer(value -> config.checkForUpdates = value).build());
+        updates.addEntry(entries.startBooleanToggle(name("autoUpdate"), config.autoUpdate)
+                .setDefaultValue(defaults.autoUpdate).setTooltip(tooltip("autoUpdate"))
+                .setSaveConsumer(value -> config.autoUpdate = value).build());
         return builder.build();
     }
 

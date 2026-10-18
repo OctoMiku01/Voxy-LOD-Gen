@@ -68,5 +68,13 @@
   "lodgen.map.cut": "Aufgeschnitten bei Y %s",
   "lodgen.map.key.cut.button": "Bild↑/↓",
   "lodgen.map.key.cut": "Schnitt",
-  "lodgen.map.settings.onlyLods": "Nur LODs"
+  "lodgen.map.settings.onlyLods": "Nur LODs",
+  "config.lodgen.category.updates": "Updates",
+  "config.lodgen.checkForUpdates": "Nach Updates suchen",
+  "config.lodgen.checkForUpdates.tooltip": "Fragt bei jedem Start auf GitHub nach, ob es eine neuere Version für diese Minecraft-Version gibt, und sagt es dir im Chat",
+  "config.lodgen.autoUpdate": "Automatisch aktualisieren",
+  "config.lodgen.autoUpdate.tooltip": "Lädt eine neuere Version selbst herunter, prüft ihre SHA-256-Prüfsumme und tauscht sie beim Beenden des Spiels ein. Wirkt ab dem nächsten Start",
+  "lodgen.update.available": "Voxy LOD Gen %s ist verfügbar (installiert: %s).",
+  "lodgen.update.downloaded": "Voxy LOD Gen %s ist heruntergeladen (installiert: %s) und wird beim Beenden des Spiels installiert.",
+  "lodgen.update.open": "[Release ansehen]"
 }

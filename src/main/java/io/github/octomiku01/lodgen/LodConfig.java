@@ -44,6 +44,10 @@ final class LodConfig {
     int mapRadius = 1024;
     /** Per player that gets LODs over the network; about 20 KiB each before the connection compresses them */
     int maxChunksPerSecondPerPlayer = 20;
+    /** Ask GitHub at each start whether a newer version exists */
+    boolean checkForUpdates = true;
+    /** Download a newer version by itself and swap it in when the game quits */
+    boolean autoUpdate = false;
 
     static LodConfig load() {
         LodConfig config = new LodConfig();

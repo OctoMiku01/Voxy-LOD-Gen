@@ -20,6 +20,9 @@ import org.lwjgl.glfw.GLFW;
 public class LodGenClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> UpdateNotice.joined());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> UpdateNotice.left());
+        ClientTickEvents.END_CLIENT_TICK.register(UpdateNotice::tick);
         // Without a receiver the server sees that this client cannot use LODs and sends none
         if (FabricLoader.getInstance().isModLoaded("voxy")) {
             ClientPlayNetworking.registerGlobalReceiver(LodChunkPayload.TYPE, (payload, context) -> ClientLodReceiver.receive(payload, context.client()));

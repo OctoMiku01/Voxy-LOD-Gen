@@ -25,6 +25,7 @@ public class LodGen implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        UpdateCheck.start();
         PayloadTypeRegistry.clientboundPlay().register(LodChunkPayload.TYPE, LodChunkPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarEntitiesPayload.TYPE, FarEntitiesPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(MapPlayersPayload.TYPE, MapPlayersPayload.CODEC);
