@@ -2,8 +2,10 @@ package io.github.octomiku01.lodgen.mixin.voxy;
 
 import io.github.octomiku01.lodgen.client.map.MapCamera;
 import io.github.octomiku01.lodgen.client.map.ShaderMap;
+import io.github.octomiku01.lodgen.client.map.VoxyWarmup;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
@@ -22,13 +24,13 @@ public abstract class VoxyRenderSystemMixin {
             index = 2, require = 0)
     private float lodgen$mapNearPlane(float near) {
         MapCamera.voxyNearSeen = true;
-        return MapCamera.voxyNear() > 0 ? MapCamera.voxyNear() : near;
+        return lodgen$nearPlane(near);
     }
 
     @ModifyArg(method = "setupViewport", at = @At(value = "INVOKE", target = "Lme/cortex/voxy/client/core/rendering/Viewport;setProjection(Lorg/joml/Matrix4f;FF)Lme/cortex/voxy/client/core/rendering/Viewport;"),
             index = 1, require = 0)
     private float lodgen$mapNearPlaneForViewport(float near) {
-        return MapCamera.voxyNear() > 0 ? MapCamera.voxyNear() : near;
+        return lodgen$nearPlane(near);
     }
 
     // Voxy 0.2.19 and older pick the near plane inside computeProjectionMat; the first float there is it
@@ -36,7 +38,20 @@ public abstract class VoxyRenderSystemMixin {
             at = @At(value = "INVOKE", target = "Lme/cortex/voxy/client/core/RenderProperties;isReverseZ()Z"), ordinal = 0, require = 0)
     private static float lodgen$mapNearPlaneOlderVoxy(float near) {
         MapCamera.voxyNearSeen = true;
-        return MapCamera.voxyNear() > 0 ? MapCamera.voxyNear() : near;
+        return lodgen$nearPlane(near);
+    }
+
+    @Unique
+    private static float lodgen$nearPlane(float near) {
+        if (MapCamera.voxyNear() > 0) {
+            return MapCamera.voxyNear();
+        }
+        return Math.max(near, VoxyWarmup.nearPlane());
+    }
+
+    @Inject(method = "<init>", at = @At("RETURN"), require = 0)
+    private void lodgen$warmUp(CallbackInfo info) {
+        VoxyWarmup.rendererCreated();
     }
 
     @Inject(method = "renderOpaque", at = @At("HEAD"), cancellable = true, require = 0)
