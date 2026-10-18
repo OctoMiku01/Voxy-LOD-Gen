@@ -79,5 +79,11 @@
   "lodgen.update.open": "[Release ansehen]",
   "config.lodgen.updateMessageDelay": "Verzögerung der Update-Nachricht",
   "config.lodgen.updateMessageDelay.tooltip": "So viele Sekunden nach dem Betreten einer Welt erscheint die Nachricht über eine neue oder heruntergeladene Version, damit sie nach den Meldungen beim Betreten kommt",
-  "config.lodgen.seconds": "%s s"
+  "config.lodgen.seconds": "%s s",
+  "lodgen.map.key.waypoint.button": "RMT",
+  "lodgen.map.key.waypoint": "Wegpunkt",
+  "lodgen.voxyMissing.title": "Voxy fehlt",
+  "lodgen.voxyMissing.message": "Voxy LOD Gen erzeugt die LODs für Voxy, aber Voxy ist nicht installiert. Ohne Voxy zeigt die Mod nichts an und die 3D-Karte gibt es nicht.",
+  "lodgen.voxyMissing.open": "Voxy herunterladen",
+  "lodgen.voxyMissing.ignore": "Ignorieren"
 }

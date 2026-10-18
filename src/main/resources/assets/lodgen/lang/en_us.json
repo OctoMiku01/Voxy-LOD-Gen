@@ -79,5 +79,11 @@
   "lodgen.update.open": "[View release]",
   "config.lodgen.updateMessageDelay": "Update message delay",
   "config.lodgen.updateMessageDelay.tooltip": "This many seconds after joining a world the message about a new or downloaded version shows, so it comes after the messages of joining",
-  "config.lodgen.seconds": "%s s"
+  "config.lodgen.seconds": "%s s",
+  "lodgen.map.key.waypoint.button": "RMB",
+  "lodgen.map.key.waypoint": "waypoint",
+  "lodgen.voxyMissing.title": "Voxy is missing",
+  "lodgen.voxyMissing.message": "Voxy LOD Gen makes the LODs for Voxy, but Voxy is not installed. Without Voxy the mod shows nothing and there is no 3D map.",
+  "lodgen.voxyMissing.open": "Download Voxy",
+  "lodgen.voxyMissing.ignore": "Ignore"
 }

@@ -44,7 +44,9 @@ layer. With a shader pack on, the map shows
 the LODs alone in front of a plain background, as packs draw clouds and haze of their own. While the map is open, the
 terrain around where it looks is generated first, also beyond `radius` (up to `mapRadius` from you): move it somewhere
 unexplored and watch the land appear. Every player in the dimension shows on it with their face and name (others only
-with `farPlayers` on). Both need the mod on the server, which then also limits them. The map is adapted from
+with `farPlayers` on). Both need the mod on the server, which then also limits them. With
+[Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) installed, a right click on the map adds a waypoint
+where it points, with the height of the ground there. The map is adapted from
 [3D Maps Voxy Addon](https://github.com/raben12paste/3D-maps-Voxy-Addon) (MIT licensed).
 
 ## Installing

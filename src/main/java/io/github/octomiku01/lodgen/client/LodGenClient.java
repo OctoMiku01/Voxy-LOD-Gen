@@ -20,6 +20,9 @@ import org.lwjgl.glfw.GLFW;
 public class LodGenClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        if (!FabricLoader.getInstance().isModLoaded("voxy")) {
+            ClientTickEvents.END_CLIENT_TICK.register(VoxyMissingNotice::tick);
+        }
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> UpdateNotice.joined());
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> UpdateNotice.left());
         ClientTickEvents.END_CLIENT_TICK.register(UpdateNotice::tick);
@@ -41,6 +44,7 @@ public class LodGenClient implements ClientModInitializer {
             KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
             ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                MapScreen.tickKeptOpen(client);
                 while (openMap.consumeClick()) {
                     if (client.gui.screen() == null && client.level != null) {
                         client.gui.setScreen(new MapScreen(openMap));

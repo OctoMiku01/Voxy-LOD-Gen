@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -55,6 +57,8 @@ public class MapScreen extends Screen {
     private static int netherCut = 120;
     /** Voxy could not be cut open: the Nether stays closed, its roof would hide everything */
     private static boolean netherBroken;
+    /** The map stays open behind a screen it opened (Xaero's waypoint screen), which comes back to it */
+    private static MapScreen keptOpen;
 
     private final KeyMapping openKey;
     /** init runs again on every resize */
@@ -103,6 +107,8 @@ public class MapScreen extends Screen {
     private int sentFocusX = Integer.MIN_VALUE;
     private int sentFocusZ;
     private int sentFocusRadius;
+    /** Set while handing over to a screen that comes back to the map: leaving for it does not close the map */
+    private boolean handingOver;
 
     public MapScreen(KeyMapping openKey) {
         super(Component.translatable("lodgen.map.title"));
@@ -112,12 +118,16 @@ public class MapScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        openedAtNanos = System.nanoTime();
         lastFrameNanos = 0L;
-        viewCenterY = MAP_VIEW_LEVEL;
-        if (minecraft.player != null) {
-            viewCenterX = minecraft.player.getX();
-            viewCenterZ = minecraft.player.getZ();
+        handingOver = false;
+        keptOpen = null;
+        if (!opened) {
+            openedAtNanos = System.nanoTime();
+            viewCenterY = MAP_VIEW_LEVEL;
+            if (minecraft.player != null) {
+                viewCenterX = minecraft.player.getX();
+                viewCenterZ = minecraft.player.getZ();
+            }
         }
         syncWorldCamera();
         if (!opened) {
@@ -196,6 +206,10 @@ public class MapScreen extends Screen {
         lastFrameNanos = now;
 
         long window = minecraft.getWindow().handle();
+        // Behind Xaero's waypoint screen, typed letters are not for the camera
+        if (minecraft.gui.screen() != this) {
+            window = 0L;
+        }
         double forwardInput = keyDown(window, GLFW.GLFW_KEY_W) || keyDown(window, GLFW.GLFW_KEY_UP) ? 1.0 : 0.0;
         forwardInput -= keyDown(window, GLFW.GLFW_KEY_S) || keyDown(window, GLFW.GLFW_KEY_DOWN) ? 1.0 : 0.0;
         double strafeInput = keyDown(window, GLFW.GLFW_KEY_A) || keyDown(window, GLFW.GLFW_KEY_LEFT) ? 1.0 : 0.0;
@@ -226,11 +240,24 @@ public class MapScreen extends Screen {
     }
 
     private static boolean keyDown(long window, int key) {
-        return GLFW.glfwGetKey(window, key) == GLFW.GLFW_PRESS;
+        return window != 0L && GLFW.glfwGetKey(window, key) == GLFW.GLFW_PRESS;
     }
 
     /** The point of the map plane under the mouse */
     private GroundPoint mapPointAt(double mouseX, double mouseY) {
+        double[] ray = rayAt(mouseX, mouseY);
+        if (ray == null || Math.abs(ray[1]) < 1.0E-6) {
+            return null;
+        }
+        double t = (viewCenterY - MapCamera.y()) / ray[1];
+        if (t <= 0.0 || !Double.isFinite(t)) {
+            return null;
+        }
+        return new GroundPoint(MapCamera.x() + ray[0] * t, MapCamera.z() + ray[2] * t);
+    }
+
+    /** The direction from the camera through the mouse, not normalized */
+    private double[] rayAt(double mouseX, double mouseY) {
         if (width <= 0 || height <= 0 || !MapCamera.isActive()) {
             return null;
         }
@@ -251,14 +278,47 @@ public class MapScreen extends Screen {
         double rayX = forwardX + rightX * ndcX * tanX + upX * ndcY * tanY;
         double rayY = forwardY + upY * ndcY * tanY;
         double rayZ = forwardZ + rightZ * ndcX * tanX + upZ * ndcY * tanY;
-        if (Math.abs(rayY) < 1.0E-6) {
-            return null;
+        return new double[] {rayX, rayY, rayZ};
+    }
+
+    /**
+     * Opens Xaero's screen to add a waypoint where the mouse points at the ground, with its height. Where neither
+     * the loaded chunks nor the LODs have ground under the mouse, at the sea level's spot, its height left open.
+     */
+    private void addWaypoint(double mouseX, double mouseY) {
+        double[] ray = rayAt(mouseX, mouseY);
+        if (ray == null || minecraft.level == null) {
+            return;
         }
-        double t = (viewCenterY - MapCamera.y()) / rayY;
-        if (t <= 0.0 || !Double.isFinite(t)) {
-            return null;
+        int topY = isNether() ? netherCut : minecraft.level.getMaxY();
+        BlockPos ground = TerrainPick.pick(minecraft.level, MapCamera.x(), MapCamera.y(), MapCamera.z(), ray[0], ray[1], ray[2], topY);
+        Screen screen;
+        if (ground != null) {
+            screen = XaeroWaypoints.addScreen(minecraft, this, ground.getX(), ground.getY(), ground.getZ());
+        } else {
+            if (ray[1] >= 0) {
+                return;
+            }
+            double t = (minecraft.level.getSeaLevel() - MapCamera.y()) / ray[1];
+            screen = XaeroWaypoints.addScreen(minecraft, this, Mth.floor(MapCamera.x() + ray[0] * t), null, Mth.floor(MapCamera.z() + ray[2] * t));
         }
-        return new GroundPoint(MapCamera.x() + rayX * t, MapCamera.z() + rayZ * t);
+        if (screen != null) {
+            dragging = false;
+            middleDragging = false;
+            handingOver = true;
+            keptOpen = this;
+            minecraft.gui.setScreen(screen);
+        }
+    }
+
+    /** The screen the map handed over to went somewhere else than back to the map: the map is closed then */
+    public static void tickKeptOpen(Minecraft minecraft) {
+        MapScreen map = keptOpen;
+        if (map != null && (minecraft.gui.screen() == null || minecraft.level == null)) {
+            keptOpen = null;
+            map.handingOver = false;
+            map.closeMap();
+        }
     }
 
     /** Where a point of the world is on the screen, or null when it is behind the camera */
@@ -604,14 +664,22 @@ public class MapScreen extends Screen {
     }
 
     private String[][] keyHints() {
-        String[] keys = isNether() ? new String[] {"drag", "rotate", "move", "fast", "zoom", "cut", "center", "close"}
-                : new String[] {"drag", "rotate", "move", "fast", "zoom", "center", "close"};
-        String[][] hints = new String[keys.length][];
-        for (int i = 0; i < keys.length; i++) {
-            String button = keys[i].equals("close")
+        List<String> keys = new ArrayList<>(List.of("drag", "rotate", "move", "fast", "zoom"));
+        if (isNether()) {
+            keys.add("cut");
+        }
+        if (XaeroWaypoints.available()) {
+            keys.add("waypoint");
+        }
+        keys.add("center");
+        keys.add("close");
+        String[][] hints = new String[keys.size()][];
+        for (int i = 0; i < keys.size(); i++) {
+            String key = keys.get(i);
+            String button = key.equals("close")
                     ? openKey.getTranslatedKeyMessage().getString()
-                    : Component.translatable("lodgen.map.key." + keys[i] + ".button").getString();
-            hints[i] = new String[]{button, Component.translatable("lodgen.map.key." + keys[i]).getString()};
+                    : Component.translatable("lodgen.map.key." + key + ".button").getString();
+            hints[i] = new String[]{button, Component.translatable("lodgen.map.key." + key).getString()};
         }
         return hints;
     }
@@ -713,6 +781,10 @@ public class MapScreen extends Screen {
             moveVelocityZ = 0.0;
             return true;
         }
+        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT && XaeroWaypoints.available() && !isUnsupportedDimension()) {
+            addWaypoint(event.x(), event.y());
+            return true;
+        }
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
             middleDragging = true;
             dragging = false;
@@ -802,6 +874,13 @@ public class MapScreen extends Screen {
 
     @Override
     public void removed() {
+        if (!handingOver) {
+            closeMap();
+        }
+        super.removed();
+    }
+
+    private void closeMap() {
         MapCamera.deactivate();
         // Before Voxy is made again for the shader pack, so the new one gets its own render distance
         VoxyRange.restore();
@@ -809,7 +888,6 @@ public class MapScreen extends Screen {
         if (sentFocusX != Integer.MIN_VALUE && ClientPlayNetworking.canSend(MapFocusPayload.TYPE)) {
             ClientPlayNetworking.send(new MapFocusPayload(0, 0, 0));
         }
-        super.removed();
     }
 
     @Override
