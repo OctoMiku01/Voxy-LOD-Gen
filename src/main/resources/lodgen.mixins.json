@@ -13,10 +13,12 @@
 		"map.CameraMixin",
 		"map.ClientClockManagerMixin",
 		"map.DebugCrosshairRendererMixin",
+		"map.EnvironmentAttributeProbeMixin",
 		"map.FogRendererMixin",
 		"map.GameRendererMixin",
 		"map.HudMixin",
 		"map.LevelMixin",
+		"map.LightmapRenderStateExtractorMixin",
 		"map.LevelRendererMixin",
 		"map.ScreenEffectRendererMixin"
 	],
