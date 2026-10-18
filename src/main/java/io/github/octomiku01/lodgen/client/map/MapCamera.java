@@ -26,6 +26,8 @@ public final class MapCamera {
     private static float voxyNear;
     /** Set whenever Voxy takes the near plane from here, so it is known that the hook into Voxy took hold */
     public static volatile boolean voxyNearSeen;
+    /** While set, the clocks give the real time, also on the map (for a shader pack's clock, see IrisWorldTimeMixin) */
+    public static boolean readingRealTime;
 
     private MapCamera() {
     }

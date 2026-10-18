@@ -17,6 +17,7 @@
 		"map.FogRendererMixin",
 		"map.GameRendererMixin",
 		"map.HudMixin",
+		"map.IrisWorldTimeMixin",
 		"map.LevelMixin",
 		"map.LightmapRenderStateExtractorMixin",
 		"map.LevelRendererMixin",

@@ -15,7 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class ClientClockManagerMixin {
     @Inject(method = "getTotalTicks", at = @At("HEAD"), cancellable = true)
     private void lodgen$mapTime(Holder<WorldClock> clock, CallbackInfoReturnable<Long> info) {
-        if (MapCamera.isActive() && MapSettings.get().timeOfDay() != MapSettings.TimeOfDay.REAL) {
+        if (MapCamera.isActive() && !MapCamera.readingRealTime && MapSettings.get().timeOfDay() != MapSettings.TimeOfDay.REAL) {
             info.setReturnValue(MapSettings.get().timeOfDay().ticks);
         }
     }
