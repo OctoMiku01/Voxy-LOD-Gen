@@ -9,11 +9,19 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** No crosshair, hotbar, chat... over the 3D map */
+/** No crosshair, hotbar, chat, F3 screen... over the 3D map */
 @Mixin(Hud.class)
 public abstract class HudMixin {
     @Inject(method = "extractRenderState", at = @At("HEAD"), cancellable = true)
     private void lodgen$noHudOnMap(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker, CallbackInfo info) {
+        if (MapCamera.isActive()) {
+            info.cancel();
+        }
+    }
+
+    // Drawn on its own, over the screen
+    @Inject(method = "extractDebugOverlay", at = @At("HEAD"), cancellable = true)
+    private void lodgen$noDebugOverlayOnMap(GuiGraphicsExtractor graphics, CallbackInfo info) {
         if (MapCamera.isActive()) {
             info.cancel();
         }

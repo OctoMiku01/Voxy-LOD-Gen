@@ -12,6 +12,7 @@
 	"client": [
 		"map.CameraMixin",
 		"map.ClientClockManagerMixin",
+		"map.DebugCrosshairRendererMixin",
 		"map.FogRendererMixin",
 		"map.GameRendererMixin",
 		"map.HudMixin",
