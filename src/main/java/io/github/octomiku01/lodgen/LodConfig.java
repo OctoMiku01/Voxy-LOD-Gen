@@ -48,6 +48,8 @@ final class LodConfig {
     boolean checkForUpdates = true;
     /** Download a newer version by itself and swap it in when the game quits */
     boolean autoUpdate = false;
+    /** Seconds after joining a world before the update message shows, so it comes after the messages of joining */
+    int updateMessageDelay = 10;
 
     static LodConfig load() {
         LodConfig config = new LodConfig();
@@ -85,5 +87,6 @@ final class LodConfig {
         this.mapRadius = Math.max(0, this.mapRadius);
         this.tileSize = Math.clamp(this.tileSize, 1, 32);
         this.maxChunksPerSecondPerPlayer = Math.max(1, this.maxChunksPerSecondPerPlayer);
+        this.updateMessageDelay = Math.clamp(this.updateMessageDelay, 0, 60);
     }
 }

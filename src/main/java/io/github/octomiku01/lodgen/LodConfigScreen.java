@@ -92,6 +92,10 @@ public final class LodConfigScreen {
         updates.addEntry(entries.startBooleanToggle(name("autoUpdate"), config.autoUpdate)
                 .setDefaultValue(defaults.autoUpdate).setTooltip(tooltip("autoUpdate"))
                 .setSaveConsumer(value -> config.autoUpdate = value).build());
+        updates.addEntry(entries.startIntSlider(name("updateMessageDelay"), config.updateMessageDelay, 0, 60)
+                .setDefaultValue(defaults.updateMessageDelay).setTooltip(tooltip("updateMessageDelay"))
+                .setTextGetter(value -> Component.translatable("config.lodgen.seconds", value))
+                .setSaveConsumer(value -> config.updateMessageDelay = value).build());
         return builder.build();
     }
 

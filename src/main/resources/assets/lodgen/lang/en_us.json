@@ -76,5 +76,8 @@
   "config.lodgen.autoUpdate.tooltip": "Downloads a newer version by itself, checks its SHA-256 checksum and swaps it in when the game quits. Takes effect from the next start",
   "lodgen.update.available": "Voxy LOD Gen %s is available (installed: %s).",
   "lodgen.update.downloaded": "Voxy LOD Gen %s has been downloaded (installed: %s) and is installed when the game quits.",
-  "lodgen.update.open": "[View release]"
+  "lodgen.update.open": "[View release]",
+  "config.lodgen.updateMessageDelay": "Update message delay",
+  "config.lodgen.updateMessageDelay.tooltip": "This many seconds after joining a world the message about a new or downloaded version shows, so it comes after the messages of joining",
+  "config.lodgen.seconds": "%s s"
 }

@@ -47,6 +47,11 @@ public final class UpdateCheck {
     private UpdateCheck() {
     }
 
+    /** Seconds after joining a world before the message about the update shows */
+    public static int messageDelaySeconds() {
+        return LodConfig.load().updateMessageDelay;
+    }
+
     /** The newer release found, or null while there is none (or the check has not finished) */
     public static @Nullable Update update() {
         return update;
@@ -118,31 +123,38 @@ public final class UpdateCheck {
             if (current != null && current.downloaded() && current.version().equals(newestVersion)) {
                 return;
             }
-            update = new Update(newestVersion, page, false);
             LodGen.LOGGER.info("Voxy LOD Gen {} is available (installed: {}): {}", newestVersion, version, page);
-            if (!autoUpdate) {
-                return;
-            }
-            if (jar == null) {
-                LodGen.LOGGER.info("Not updating automatically: the mod is not running from a jar in the mods folder");
-                return;
-            }
-            @Nullable JsonObject asset = modJar(newest, newestVersion + "+" + minecraft);
-            if (asset == null) {
-                LodGen.LOGGER.warn("Release {} has no jar of the mod to update to", newest.get("tag_name").getAsString());
-                return;
-            }
-            Path target = jar.resolveSibling(asset.get("name").getAsString() + UPDATE_SUFFIX);
+            // Only told once the download is through: the player hears either that it is downloaded or that it is not
+            boolean downloaded = false;
             try {
-                download(client, asset, target);
-            } catch (IOException e) {
-                LodGen.LOGGER.warn("Could not download Voxy LOD Gen {}: {}", newestVersion, e.getMessage());
-                return;
+                downloaded = autoUpdate && autoUpdate(client, newest, newestVersion, minecraft, jar);
+            } finally {
+                update = new Update(newestVersion, page, downloaded);
             }
-            update = new Update(newestVersion, page, true);
-            scheduleInstall(jar, target);
-            LodGen.LOGGER.info("Downloaded Voxy LOD Gen {}, it replaces {} when the game quits", newestVersion, jar.getFileName());
         }
+    }
+
+    private static boolean autoUpdate(HttpClient client, JsonObject release, String version, String minecraft, @Nullable Path jar)
+            throws InterruptedException {
+        if (jar == null) {
+            LodGen.LOGGER.info("Not updating automatically: the mod is not running from a jar in the mods folder");
+            return false;
+        }
+        @Nullable JsonObject asset = modJar(release, version + "+" + minecraft);
+        if (asset == null) {
+            LodGen.LOGGER.warn("Release {} has no jar of the mod to update to", release.get("tag_name").getAsString());
+            return false;
+        }
+        Path target = jar.resolveSibling(asset.get("name").getAsString() + UPDATE_SUFFIX);
+        try {
+            download(client, asset, target);
+        } catch (IOException e) {
+            LodGen.LOGGER.warn("Could not download Voxy LOD Gen {}: {}", version, e.getMessage());
+            return false;
+        }
+        scheduleInstall(jar, target);
+        LodGen.LOGGER.info("Downloaded Voxy LOD Gen {}, it replaces {} when the game quits", version, jar.getFileName());
+        return true;
     }
 
     private static HttpRequest.Builder request(String url) {

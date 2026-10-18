@@ -76,5 +76,8 @@
   "config.lodgen.autoUpdate.tooltip": "Lädt eine neuere Version selbst herunter, prüft ihre SHA-256-Prüfsumme und tauscht sie beim Beenden des Spiels ein. Wirkt ab dem nächsten Start",
   "lodgen.update.available": "Voxy LOD Gen %s ist verfügbar (installiert: %s).",
   "lodgen.update.downloaded": "Voxy LOD Gen %s ist heruntergeladen (installiert: %s) und wird beim Beenden des Spiels installiert.",
-  "lodgen.update.open": "[Release ansehen]"
+  "lodgen.update.open": "[Release ansehen]",
+  "config.lodgen.updateMessageDelay": "Verzögerung der Update-Nachricht",
+  "config.lodgen.updateMessageDelay.tooltip": "So viele Sekunden nach dem Betreten einer Welt erscheint die Nachricht über eine neue oder heruntergeladene Version, damit sie nach den Meldungen beim Betreten kommt",
+  "config.lodgen.seconds": "%s s"
 }

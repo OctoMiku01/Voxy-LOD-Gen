@@ -81,6 +81,7 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 | `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
 | `checkForUpdates` | true | Ask GitHub at each start whether a newer version exists and say so in chat |
 | `autoUpdate` | false | Download a newer version (checked against its SHA-256 checksum) and swap it in when the game quits |
+| `updateMessageDelay` | 10 | Seconds after joining a world before the update message shows |
 
 ## Commands
 

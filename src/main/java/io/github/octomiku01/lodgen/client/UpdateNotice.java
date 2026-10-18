@@ -13,8 +13,6 @@ import net.minecraft.network.chat.Component;
  * messages that come with joining are through, so this one is the newest
  */
 final class UpdateNotice {
-    private static final long DELAY_NANOS = 3_000_000_000L;
-
     private static boolean shown;
     /** When the message is due, 0 while not in a world */
     private static long dueNanos;
@@ -23,7 +21,9 @@ final class UpdateNotice {
     }
 
     static void joined() {
-        dueNanos = Math.max(1, System.nanoTime() + DELAY_NANOS);
+        if (!shown) {
+            dueNanos = Math.max(1, System.nanoTime() + UpdateCheck.messageDelaySeconds() * 1_000_000_000L);
+        }
     }
 
     static void left() {
