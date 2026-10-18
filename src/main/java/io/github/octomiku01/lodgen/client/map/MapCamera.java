@@ -22,6 +22,8 @@ public final class MapCamera {
     private static double range;
     /** In the Nether the near plane cuts the roof off (see {@link #near}); 0 elsewhere */
     private static float near;
+    /** Voxy's near plane on the map, see {@link #voxyNear} */
+    private static float voxyNear;
     /** Set whenever Voxy takes the near plane from here, so it is known that the hook into Voxy took hold */
     public static volatile boolean voxyNearSeen;
 
@@ -67,6 +69,11 @@ public final class MapCamera {
         pitch = pitchDegrees;
         // The game's far plane follows its own view distance, which is far too close from up here
         far = (float) (range * 3.0);
+        // Nothing is above the top of the world, and the camera is far above it: the near plane can go almost down
+        // there. Close to 0, as Voxy has it while it draws the real chunks too, its depth is far too coarse from up
+        // here, and faces behind show through as fine lines
+        double aboveWorld = y - (minecraft.level.getMaxY() + 1);
+        voxyNear = nether ? near : (float) Math.max(0.1, aboveWorld * 0.25);
         active = true;
     }
 
@@ -112,6 +119,11 @@ public final class MapCamera {
      */
     public static float near() {
         return active ? near : 0;
+    }
+
+    /** Voxy's near plane: in the Nether the one that cuts the roof off, elsewhere as far out as nothing is cut */
+    public static float voxyNear() {
+        return active ? voxyNear : 0;
     }
 
     /** How far the camera is from the point it looks at */
