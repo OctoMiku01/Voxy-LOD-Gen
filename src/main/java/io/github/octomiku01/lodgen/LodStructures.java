@@ -55,7 +55,12 @@ final class LodStructures extends StructureManager {
         return this.starts.get(LodGenerator.pack(chunkX, chunkZ), key -> {
             // Like vanilla's structure starts step, on a chunk that only holds the result
             ProtoChunk chunk = new ProtoChunk(new ChunkPos(chunkX, chunkZ), UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
-            this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureManager(), this.level.dimension());
+            StructureHeights.begin();
+            try {
+                this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureManager(), this.level.dimension());
+            } finally {
+                StructureHeights.end();
+            }
             return Map.copyOf(chunk.getAllStarts());
         });
     }
