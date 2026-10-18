@@ -8,6 +8,7 @@
 		"OctoMiku01"
 	],
 	"license": "MIT",
+	"icon": "assets/lodgen/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
