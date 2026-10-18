@@ -5,9 +5,16 @@ import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.client.core.VoxyRenderSystem;
 import me.cortex.voxy.common.world.service.VoxelIngestService;
+import me.cortex.voxy.commonImpl.WorldIdentifier;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.lighting.LayerLightSectionStorage;
+import net.minecraft.world.level.lighting.LevelLightEngine;
 
 /**
  * Voxy keeps LODs only within its render distance around the camera, and fades them out toward its edge. Zoomed out,
@@ -63,12 +70,20 @@ final class VoxyRange {
     /**
      * Hands Voxy the chunks the game has loaded. It takes them in when they load, but only if their light is there
      * already, which it often is not yet: those only come when they unload. With only LODs on the map they are needed.
+     * <p>
+     * As copies: Voxy reads them later on its own threads, and the game may change a chunk meanwhile; reading a
+     * section while its palette grows gives Voxy invalid blocks. This is how Voxy takes them in itself, otherwise.
      */
     static void ingestLoadedChunks(Minecraft minecraft) {
         if (ingestBroken || minecraft.level == null || minecraft.player == null) {
             return;
         }
         try {
+            WorldIdentifier world = WorldIdentifier.of(minecraft.level);
+            if (world == null) {
+                return;
+            }
+            LevelLightEngine light = minecraft.level.getLightEngine();
             int distance = minecraft.options.getEffectiveRenderDistance() + 1;
             int centerX = minecraft.player.chunkPosition().x();
             int centerZ = minecraft.player.chunkPosition().z();
@@ -76,13 +91,41 @@ final class VoxyRange {
                 for (int z = centerZ - distance; z <= centerZ + distance; z++) {
                     LevelChunk chunk = minecraft.level.getChunkSource().getChunk(x, z, ChunkStatus.FULL, false);
                     if (chunk != null) {
-                        VoxelIngestService.tryAutoIngestChunk(chunk);
+                        ingestCopy(world, light, chunk);
                     }
                 }
             }
         } catch (RuntimeException | LinkageError e) {
             ingestBroken = true;
             LodGen.LOGGER.warn("Could not hand the loaded chunks to Voxy for the 3D map", e);
+        }
+    }
+
+    private static void ingestCopy(WorldIdentifier world, LevelLightEngine light, LevelChunk chunk) {
+        LevelChunkSection[] sections = chunk.getSections();
+        // Like Voxy: without light yet it would come out black
+        boolean lit = false;
+        for (int index = 0; index < sections.length && !lit; index++) {
+            SectionPos pos = SectionPos.of(chunk.getPos(), chunk.getSectionYFromSectionIndex(index));
+            lit = light.getDebugSectionType(LightLayer.SKY, pos) == LayerLightSectionStorage.SectionType.LIGHT_AND_DATA
+                    || light.getDebugSectionType(LightLayer.BLOCK, pos) == LayerLightSectionStorage.SectionType.LIGHT_AND_DATA;
+        }
+        if (!lit) {
+            return;
+        }
+        for (int index = 0; index < sections.length; index++) {
+            LevelChunkSection section = sections[index];
+            if (section == null) {
+                continue;
+            }
+            int sectionY = chunk.getSectionYFromSectionIndex(index);
+            SectionPos pos = SectionPos.of(chunk.getPos(), sectionY);
+            DataLayer blockLight = light.getLayerListener(LightLayer.BLOCK).getDataLayerData(pos);
+            DataLayer skyLight = light.getLayerListener(LightLayer.SKY).getDataLayerData(pos);
+            if (!VoxelIngestService.rawIngest(world, section.copy(), chunk.getPos().x(), sectionY, chunk.getPos().z(),
+                    blockLight == null ? null : blockLight.copy(), skyLight == null ? null : skyLight.copy())) {
+                return;
+            }
         }
     }
 
