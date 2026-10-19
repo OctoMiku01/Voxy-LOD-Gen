@@ -1,5 +1,6 @@
 package io.github.octomiku01.lodgen.mixin.map;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import io.github.octomiku01.lodgen.client.map.MapCamera;
 import io.github.octomiku01.lodgen.client.map.ShaderMap;
 import net.fabricmc.loader.api.FabricLoader;
@@ -15,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** No hand in front of the 3D map; over a shader pack, the map is drawn right before the GUI */
+/** No hand in front of the 3D map; over a shader pack, the map is drawn right before the GUI; in the Nether, overlays stay on top */
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
     @Shadow
@@ -26,6 +27,11 @@ public abstract class GameRendererMixin {
     private void lodgen$mapBeforeGui(DeltaTracker deltaTracker, boolean advanceGameTime, CallbackInfo info) {
         if (MapCamera.isActive() && FabricLoader.getInstance().isModLoaded("voxy")) {
             ShaderMap.beforeGui(this.minecraft);
+        }
+        // With the Nether's near plane far out, the map's depth is close to the near end. Overlays drawn right before
+        // the GUI against it, such as Xaero's waypoints, would end up under the map: nothing needs that depth anymore
+        if (MapCamera.near() > 0 && this.minecraft.gameRenderer.mainRenderTarget().getDepthTexture() != null) {
+            RenderSystem.getDevice().createCommandEncoder().clearDepthTexture(this.minecraft.gameRenderer.mainRenderTarget().getDepthTexture(), 0.0);
         }
     }
 
