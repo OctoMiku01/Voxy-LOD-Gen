@@ -22,7 +22,7 @@ final class LodConfig {
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
-    int featureRadius = 128;
+    int featureRadius = 256;
     /** First terrain quickly up to the radius, then the details up to featureRadius, closest first; the terrain stays
      *  twice as far ahead. Off: each ring is finished with its details before the next one */
     boolean terrainFirst = true;

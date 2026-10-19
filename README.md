@@ -68,7 +68,7 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 | Option | Default | |
 |---|---|---|
 | `radius` | 256 | How far LODs reach, in chunks |
-| `featureRadius` | 128 | Up to here LODs get features and structures, further away only terrain |
+| `featureRadius` | 256 | Up to here LODs get features and structures, further away only terrain |
 | `mapRadius` | 1024 | How far from you the 3D map may lead generation to where it looks, in chunks; 0 turns it off |
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
