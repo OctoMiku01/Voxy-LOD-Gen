@@ -27,6 +27,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkTrackingView;
@@ -527,13 +530,7 @@ final class LodGenerator {
                 this.rate, this.inFlight.get(), this.threads(), current.size(), this.sent.get()));
         text.append(String.format("; built since the start: %d (%d terrain only, %d with features, %d from the save)",
                 this.generated.get(), this.builtTerrain.get(), this.builtFeatures.get(), this.builtSaved.get()));
-        Viewer viewer = asking == null ? null : this.viewerOf(asking.getUUID());
-        if (viewer == null && current.size() == 1) {
-            viewer = current.getFirst();
-        }
-        if (viewer != null) {
-            viewer = this.withFocus(viewer, System.currentTimeMillis());
-        }
+        Viewer viewer = this.statusViewer(asking, current);
         if (viewer != null) {
             Dimension dimension = this.dimensions.get(viewer.level.dimension());
             if (dimension != null && dimension.builder == null) {
@@ -554,6 +551,61 @@ final class LodGenerator {
             text.append("; you get no LODs (this mod or Voxy is missing on your client)");
         }
         return text.toString();
+    }
+
+    /** The same as {@link #status}, laid out over several lines with colours, for the /lodgen command */
+    Component statusMessage(@Nullable ServerPlayer asking) {
+        List<Viewer> current = this.viewers;
+        MutableComponent text = LodChat.tag().append(Component.literal("Status").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD));
+        if (this.paused) {
+            text.append(Component.literal("  paused").withStyle(ChatFormatting.YELLOW));
+        }
+        text.append(LodChat.newLine()).append(LodChat.label("Speed  "))
+                .append(LodChat.value(String.format("%.1f", this.rate))).append(LodChat.label(" chunks/s"))
+                .append(LodChat.separator()).append(LodChat.value(this.inFlight.get())).append(LodChat.label(" in progress"))
+                .append(LodChat.separator()).append(LodChat.value(this.threads())).append(LodChat.label(" threads"));
+        text.append(LodChat.newLine()).append(LodChat.label("Players  ")).append(LodChat.value(current.size()))
+                .append(LodChat.separator()).append(LodChat.value(this.sent.get())).append(LodChat.label(" sent over the network"));
+        text.append(LodChat.newLine()).append(LodChat.label("Built  ")).append(LodChat.value(this.generated.get()))
+                .append(LodChat.label(" (")).append(LodChat.value(this.builtTerrain.get())).append(LodChat.label(" terrain only"))
+                .append(LodChat.separator()).append(LodChat.value(this.builtFeatures.get())).append(LodChat.label(" with features"))
+                .append(LodChat.separator()).append(LodChat.value(this.builtSaved.get())).append(LodChat.label(" from the save)"));
+        Viewer viewer = this.statusViewer(asking, current);
+        if (viewer != null) {
+            text.append(LodChat.newLine()).append(Component.literal(viewer.name).withStyle(ChatFormatting.AQUA))
+                    .append(LodChat.label(" in ")).append(LodChat.value(viewer.level.dimension().identifier().toString()));
+            Dimension dimension = this.dimensions.get(viewer.level.dimension());
+            if (dimension != null && dimension.builder == null) {
+                text.append(LodChat.newLine()).append(Component.literal("  This dimension is not supported").withStyle(ChatFormatting.RED));
+            } else {
+                Progress progress = this.progressOf(viewer);
+                text.append(LodChat.newLine()).append(LodChat.label(this.config.terrainFirst ? "  Terrain  " : "  Rings  "))
+                        .append(LodChat.progress(progress.terrain.shownRing, this.config.radius));
+                if (this.config.terrainFirst) {
+                    text.append(LodChat.newLine()).append(LodChat.label("  Details  "))
+                            .append(LodChat.progress(progress.details.shownRing, this.config.featureRadius));
+                }
+                if (viewer.focusRadius > 0) {
+                    text.append(LodChat.newLine()).append(LodChat.label("  3D map  "))
+                            .append(LodChat.progress(progress.focus.shownRing, viewer.focusRadius))
+                            .append(LodChat.label(" at ")).append(LodChat.value(viewer.focusX * 16 + ", " + viewer.focusZ * 16));
+                }
+                text.append(LodChat.newLine()).append(LodChat.label("  LOD chunks  ")).append(LodChat.value(progress.doneCount()));
+            }
+        } else if (asking != null) {
+            text.append(LodChat.newLine()).append(Component.literal("You get no LODs: this mod or Voxy is missing on your client")
+                    .withStyle(ChatFormatting.YELLOW));
+        }
+        return text;
+    }
+
+    /** Whose progress the status shows: the asking player's, or the only player's when the console asks */
+    private @Nullable Viewer statusViewer(@Nullable ServerPlayer asking, List<Viewer> current) {
+        Viewer viewer = asking == null ? null : this.viewerOf(asking.getUUID());
+        if (viewer == null && current.size() == 1) {
+            viewer = current.getFirst();
+        }
+        return viewer == null ? null : this.withFocus(viewer, System.currentTimeMillis());
     }
 
     void stop() {

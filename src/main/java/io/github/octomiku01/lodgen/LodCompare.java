@@ -5,9 +5,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -41,14 +43,14 @@ final class LodCompare {
         ServerLevel level = (ServerLevel) player.level();
         LodChunkBuilder builder = LodChunkBuilder.create(level, true, true);
         if (builder == null) {
-            reply(source, "this dimension is not supported");
+            reply(source, LodChat.error("This dimension is not supported"));
             return;
         }
         ChunkPos center = player.chunkPosition();
         int minX = center.x() - SIZE / 2;
         int minZ = center.z() - SIZE / 2;
         SavedChunks saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), server.getWorldPath(LevelResource.ROOT)).resolve("region"));
-        reply(source, "building the LODs around you, this takes a few seconds...");
+        reply(source, LodChat.info("Building the LODs around you, this takes a few seconds..."));
 
         Thread thread = new Thread(() -> {
             try {
@@ -69,7 +71,7 @@ final class LodCompare {
                 server.execute(() -> compare(source, level, real, withFeatures, reversed, terrainOnly, minX, minZ));
             } catch (Throwable t) {
                 LodGen.LOGGER.error("LOD comparison failed", t);
-                server.execute(() -> reply(source, "failed: " + t));
+                server.execute(() -> reply(source, LodChat.error("Comparison failed: " + t)));
             }
         }, "LodGen-Compare");
         thread.setDaemon(true);
@@ -80,7 +82,7 @@ final class LodCompare {
                                 List<LodChunk> withFeatures, List<LodChunk> reversed, Map<ChunkPos, LodChunk> terrainOnly,
                                 int minX, int minZ) {
         if (real.isEmpty()) {
-            reply(source, "no real chunks around you to compare with");
+            reply(source, LodChat.warning("No real chunks around you to compare with"));
             return;
         }
         int columns = 0;
@@ -131,23 +133,39 @@ final class LodCompare {
                 }
             }
         }
-        reply(source, String.format("compared %d real chunks (%d columns): top block %d%% identical (terrain only: %d%%), ground %d%%, biome %d%%",
-                real.size(), columns, 100 * sameTop / columns, 100 * sameTopTerrain / columns, 100 * sameGround / columns, 100 * sameBiome / columns));
-        reply(source, String.format("LOD against the same LOD decorated in reverse chunk order: top block %d%% identical"
-                + " (the rest depends only on which overlapping tree grows first)", 100 * sameTopReversed / columns));
+        MutableComponent result = LodChat.tag().append(Component.literal("Comparison").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD))
+                .append(LodChat.label("  ")).append(LodChat.value(real.size())).append(LodChat.label(" real chunks, "))
+                .append(LodChat.value(columns)).append(LodChat.label(" columns"));
+        result.append(LodChat.newLine()).append(LodChat.label("  Top block  ")).append(share(sameTop, columns))
+                .append(LodChat.label(" (terrain only ")).append(share(sameTopTerrain, columns)).append(LodChat.label(")"));
+        result.append(LodChat.newLine()).append(LodChat.label("  Ground  ")).append(share(sameGround, columns));
+        result.append(LodChat.newLine()).append(LodChat.label("  Biome  ")).append(share(sameBiome, columns));
+        result.append(LodChat.newLine()).append(LodChat.label("  Decorated in reverse order  ")).append(share(sameTopReversed, columns))
+                .append(LodChat.label(" (the rest only depends on which overlapping tree grows first)"));
+        reply(source, result);
         report(source, "top block real -> LOD", differences);
         report(source, "biome real -> LOD", biomeDifferences);
+    }
+
+    /** How many of all were identical, green when nearly all, red when many differ */
+    private static MutableComponent share(int same, int all) {
+        int percent = 100 * same / all;
+        ChatFormatting colour = percent >= 95 ? ChatFormatting.GREEN : percent >= 80 ? ChatFormatting.YELLOW : ChatFormatting.RED;
+        return Component.literal(percent + "%").withStyle(colour);
     }
 
     private static void report(CommandSourceStack source, String title, Map<String, Integer> differences) {
         if (differences.isEmpty()) {
             return;
         }
-        reply(source, "most common differences, " + title + ":");
+        MutableComponent list = LodChat.tag().append(LodChat.label("Most common differences, ")).append(LodChat.value(title));
         differences.entrySet().stream()
                 .sorted((a, b) -> b.getValue() - a.getValue())
                 .limit(SHOWN_DIFFERENCES)
-                .forEach(entry -> reply(source, "  " + entry.getValue() + "x " + entry.getKey()));
+                .forEach(entry -> list.append(LodChat.newLine()).append(LodChat.label("  "))
+                        .append(Component.literal(entry.getValue() + "x ").withStyle(ChatFormatting.GOLD))
+                        .append(LodChat.value(entry.getKey().replace(" -> ", " → "))));
+        reply(source, list);
     }
 
     private static Int2ObjectOpenHashMap<LevelChunkSection> sectionsOf(LodChunk chunk) {
@@ -194,8 +212,8 @@ final class LodCompare {
         return new Column(top, topBlock, ground, biome);
     }
 
-    private static void reply(CommandSourceStack source, String message) {
-        source.sendSuccess(() -> Component.literal("[Voxy LOD Gen] " + message), false);
-        LodGen.LOGGER.info("compare: {}", message);
+    private static void reply(CommandSourceStack source, Component message) {
+        source.sendSuccess(() -> message, false);
+        LodGen.LOGGER.info("compare: {}", message.getString());
     }
 }
