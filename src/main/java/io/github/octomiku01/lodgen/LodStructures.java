@@ -57,7 +57,7 @@ final class LodStructures extends StructureManager {
             ProtoChunk chunk = new ProtoChunk(new ChunkPos(chunkX, chunkZ), UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
             StructureHeights.begin();
             try {
-                this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureManager(), this.level.dimension());
+                this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureTemplateManager(), this.level.dimension());
             } finally {
                 StructureHeights.end();
             }
@@ -92,9 +92,9 @@ final class LodStructures extends StructureManager {
     }
 
     @Override
-    public List<StructureStart> startsForStructure(ChunkPos pos, Predicate<Structure> predicate) {
+    public List<StructureStart> startsForStructure(int sectionX, int sectionZ, Predicate<Structure> predicate) {
         ImmutableList.Builder<StructureStart> result = ImmutableList.builder();
-        this.reaching(pos.x(), pos.z()).forEach((structure, starts) -> {
+        this.reaching(sectionX, sectionZ).forEach((structure, starts) -> {
             if (predicate.test(structure)) {
                 result.addAll(starts);
             }
@@ -103,8 +103,8 @@ final class LodStructures extends StructureManager {
     }
 
     @Override
-    public List<StructureStart> startsForStructure(SectionPos pos, Structure structure) {
-        return this.reaching(pos.x(), pos.z()).getOrDefault(structure, List.of());
+    public List<StructureStart> startsForStructure(int sectionX, int sectionZ, Structure structure) {
+        return this.reaching(sectionX, sectionZ).getOrDefault(structure, List.of());
     }
 
     @Override
@@ -118,19 +118,14 @@ final class LodStructures extends StructureManager {
     }
 
     @Override
-    public @Nullable StructureStart getStartForStructure(SectionPos pos, Structure structure, StructureAccess chunk) {
+    public @Nullable StructureStart getStartForStructure(Structure structure, StructureAccess chunk) {
         return chunk.getStartForStructure(structure);
     }
 
     @Override
-    public boolean hasAnyStructureAt(BlockPos pos) {
-        return !this.reaching(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ())).isEmpty();
-    }
-
-    @Override
-    public Map<Structure, LongSet> getAllStructuresAt(BlockPos pos) {
+    public Map<Structure, LongSet> getAllStructuresAt(int x, int y, int z) {
         Map<Structure, LongSet> result = new HashMap<>();
-        this.reaching(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ())).forEach((structure, starts) -> {
+        this.reaching(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z)).forEach((structure, starts) -> {
             LongSet set = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
             starts.forEach(start -> set.add(start.getChunkPos().pack()));
             result.put(structure, set);

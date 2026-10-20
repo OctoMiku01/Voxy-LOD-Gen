@@ -12,6 +12,7 @@
 	"client": [
 		"map.CameraMixin",
 		"map.ClientClockManagerMixin",
+		"map.CloudsAndWeatherMixin",
 		"map.DebugCrosshairRendererMixin",
 		"map.EnvironmentAttributeProbeMixin",
 		"map.FogRendererMixin",
@@ -20,7 +21,6 @@
 		"map.IrisWorldTimeMixin",
 		"map.LevelMixin",
 		"map.LightmapRenderStateExtractorMixin",
-		"map.LevelRendererMixin",
 		"map.ScreenEffectRendererMixin"
 	],
 	"injectors": {

@@ -1,6 +1,6 @@
 package io.github.octomiku01.lodgen.client.map;
 
-import com.mojang.blaze3d.opengl.GlTexture;
+import com.mojang.renderpearl.backend.opengl.GlTexture;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import io.github.octomiku01.lodgen.LodGen;

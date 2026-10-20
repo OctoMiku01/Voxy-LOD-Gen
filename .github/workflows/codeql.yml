@@ -20,15 +20,6 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v5
 
-      # Voxy is not on a maven repository: build the public upstream at the commit our local fork is based on.
-      # The fork only changes Iris classes, which this mod does not use
-      - name: Checkout Voxy
-        uses: actions/checkout@v5
-        with:
-          repository: MCRcortex/voxy
-          ref: 534d58ec8b4aa412ef314b884295552c69d480a6
-          path: voxy-upstream
-
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
@@ -38,13 +29,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      # Built before CodeQL starts watching, so only this mod's code gets analyzed
-      - name: Build Voxy
-        working-directory: voxy-upstream
-        run: |
-          ./gradlew jar --no-daemon
-          echo "VOXY_JAR=$(ls $PWD/build/libs/voxy-*.jar | grep -v sources | head -n 1)" >> "$GITHUB_ENV"
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -52,7 +36,7 @@ jobs:
           build-mode: manual
 
       - name: Build
-        run: ./gradlew clean compileJava --no-daemon -Pvoxy_jar="$VOXY_JAR"
+        run: ./gradlew clean compileJava --no-daemon
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4

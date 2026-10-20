@@ -15,7 +15,6 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
-import org.lwjgl.glfw.GLFW;
 
 public class LodGenClient implements ClientModInitializer {
     @Override
@@ -41,8 +40,8 @@ public class LodGenClient implements ClientModInitializer {
 
             // The 3D map is what Voxy renders, seen from high above
             ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE, (payload, context) -> MapPlayers.receive(payload));
-            KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYSYM,
-                    GLFW.GLFW_KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
+            KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYBOARD,
+                    InputConstants.KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
             ClientTickEvents.END_CLIENT_TICK.register(client -> {
                 MapScreen.tickKeptOpen(client);
                 while (openMap.consumeClick()) {

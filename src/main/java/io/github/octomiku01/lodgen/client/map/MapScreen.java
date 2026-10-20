@@ -1,5 +1,6 @@
 package io.github.octomiku01.lodgen.client.map;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import io.github.octomiku01.lodgen.MapFocusPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import io.github.octomiku01.lodgen.client.FarEntities;
@@ -25,7 +26,7 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
-import org.lwjgl.glfw.GLFW;
+import org.lwjgl.sdl.SDLScancode;
 
 /**
  * The 3D map: a see-through screen over the world, which {@link MapCamera} renders from high above. Drag to move,
@@ -205,22 +206,19 @@ public class MapScreen extends Screen {
         double dt = lastFrameNanos == 0L ? 1.0 / 60.0 : Math.min(0.08, (now - lastFrameNanos) / 1_000_000_000.0);
         lastFrameNanos = now;
 
-        long window = minecraft.getWindow().handle();
         // Behind Xaero's waypoint screen, typed letters are not for the camera
-        if (minecraft.gui.screen() != this) {
-            window = 0L;
-        }
-        double forwardInput = keyDown(window, GLFW.GLFW_KEY_W) || keyDown(window, GLFW.GLFW_KEY_UP) ? 1.0 : 0.0;
-        forwardInput -= keyDown(window, GLFW.GLFW_KEY_S) || keyDown(window, GLFW.GLFW_KEY_DOWN) ? 1.0 : 0.0;
-        double strafeInput = keyDown(window, GLFW.GLFW_KEY_A) || keyDown(window, GLFW.GLFW_KEY_LEFT) ? 1.0 : 0.0;
-        strafeInput -= keyDown(window, GLFW.GLFW_KEY_D) || keyDown(window, GLFW.GLFW_KEY_RIGHT) ? 1.0 : 0.0;
+        boolean focused = minecraft.gui.screen() == this;
+        double forwardInput = keyDown(focused, SDLScancode.SDL_SCANCODE_W) || keyDown(focused, SDLScancode.SDL_SCANCODE_UP) ? 1.0 : 0.0;
+        forwardInput -= keyDown(focused, SDLScancode.SDL_SCANCODE_S) || keyDown(focused, SDLScancode.SDL_SCANCODE_DOWN) ? 1.0 : 0.0;
+        double strafeInput = keyDown(focused, SDLScancode.SDL_SCANCODE_A) || keyDown(focused, SDLScancode.SDL_SCANCODE_LEFT) ? 1.0 : 0.0;
+        strafeInput -= keyDown(focused, SDLScancode.SDL_SCANCODE_D) || keyDown(focused, SDLScancode.SDL_SCANCODE_RIGHT) ? 1.0 : 0.0;
         double horizontalInput = Math.hypot(forwardInput, strafeInput);
         if (horizontalInput > 1.0) {
             forwardInput /= horizontalInput;
             strafeInput /= horizontalInput;
         }
 
-        double speedBoost = keyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) || keyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT) ? 2.5 : 1.0;
+        double speedBoost = keyDown(focused, SDLScancode.SDL_SCANCODE_LSHIFT) || keyDown(focused, SDLScancode.SDL_SCANCODE_RSHIFT) ? 2.5 : 1.0;
         double moveSpeed = Math.max(12.0, blocksPerPixel * 76.0) * speedBoost * MapSettings.get().cameraSpeed;
         moveSpeed = Math.min(moveSpeed, MAX_KEYBOARD_CAMERA_SPEED * speedBoost);
         double forwardX = -Math.sin(viewYaw);
@@ -239,8 +237,8 @@ public class MapScreen extends Screen {
         }
     }
 
-    private static boolean keyDown(long window, int key) {
-        return window != 0L && GLFW.glfwGetKey(window, key) == GLFW.GLFW_PRESS;
+    private static boolean keyDown(boolean focused, int key) {
+        return focused && InputConstants.isKeyDown(key);
     }
 
     /** The point of the map plane under the mouse */
@@ -764,15 +762,15 @@ public class MapScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && handleSettingsClick(event.x(), event.y())) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_LEFT && handleSettingsClick(event.x(), event.y())) {
             return true;
         }
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && isInsideCutSlider(event.x(), event.y())) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_LEFT && isInsideCutSlider(event.x(), event.y())) {
             cutDragging = true;
             dragCut(event.x());
             return true;
         }
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_LEFT) {
             dragging = true;
             middleDragging = false;
             dragLastMouseX = event.x();
@@ -781,11 +779,11 @@ public class MapScreen extends Screen {
             moveVelocityZ = 0.0;
             return true;
         }
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT && XaeroWaypoints.available() && !isUnsupportedDimension()) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_RIGHT && XaeroWaypoints.available() && !isUnsupportedDimension()) {
             addWaypoint(event.x(), event.y());
             return true;
         }
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_MIDDLE) {
             middleDragging = true;
             dragging = false;
             dragStartMouseX = event.x();
@@ -797,12 +795,12 @@ public class MapScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_LEFT) {
             dragging = false;
             cutDragging = false;
             return true;
         }
-        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+        if (event.button() == InputConstants.MOUSE_BUTTON_MIDDLE) {
             middleDragging = false;
             return true;
         }
@@ -833,31 +831,31 @@ public class MapScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
-        if (key == GLFW.GLFW_KEY_ESCAPE || openKey.matches(event)) {
+        if (key == SDLScancode.SDL_SCANCODE_ESCAPE || openKey.matches(event)) {
             onClose();
             return true;
         }
-        if (key == GLFW.GLFW_KEY_W || key == GLFW.GLFW_KEY_S || key == GLFW.GLFW_KEY_A || key == GLFW.GLFW_KEY_D
-                || key == GLFW.GLFW_KEY_UP || key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_LEFT || key == GLFW.GLFW_KEY_RIGHT) {
+        if (key == SDLScancode.SDL_SCANCODE_W || key == SDLScancode.SDL_SCANCODE_S || key == SDLScancode.SDL_SCANCODE_A || key == SDLScancode.SDL_SCANCODE_D
+                || key == SDLScancode.SDL_SCANCODE_UP || key == SDLScancode.SDL_SCANCODE_DOWN || key == SDLScancode.SDL_SCANCODE_LEFT || key == SDLScancode.SDL_SCANCODE_RIGHT) {
             // Held keys move the camera, see updateSmoothControls
             return true;
         }
-        if ((key == GLFW.GLFW_KEY_PAGE_UP || key == GLFW.GLFW_KEY_PAGE_DOWN) && isNether()) {
-            setCut(netherCut + (key == GLFW.GLFW_KEY_PAGE_UP ? 4 : -4));
+        if ((key == SDLScancode.SDL_SCANCODE_PAGEUP || key == SDLScancode.SDL_SCANCODE_PAGEDOWN) && isNether()) {
+            setCut(netherCut + (key == SDLScancode.SDL_SCANCODE_PAGEUP ? 4 : -4));
             return true;
         }
-        if (key == GLFW.GLFW_KEY_C && minecraft.player != null) {
+        if (key == SDLScancode.SDL_SCANCODE_C && minecraft.player != null) {
             viewCenterX = minecraft.player.getX();
             viewCenterY = MAP_VIEW_LEVEL;
             viewCenterZ = minecraft.player.getZ();
             syncWorldCamera();
             return true;
         }
-        if (key == GLFW.GLFW_KEY_EQUAL || key == GLFW.GLFW_KEY_KP_ADD) {
+        if (key == SDLScancode.SDL_SCANCODE_EQUALS || key == SDLScancode.SDL_SCANCODE_KP_PLUS) {
             zoomAt(zoomMouseX(), zoomMouseY(), 0.8);
             return true;
         }
-        if (key == GLFW.GLFW_KEY_MINUS || key == GLFW.GLFW_KEY_KP_SUBTRACT) {
+        if (key == SDLScancode.SDL_SCANCODE_MINUS || key == SDLScancode.SDL_SCANCODE_KP_MINUS) {
             zoomAt(zoomMouseX(), zoomMouseY(), 1.25);
             return true;
         }

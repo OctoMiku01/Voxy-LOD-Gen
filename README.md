@@ -8,7 +8,7 @@
 > This mod is mainly made for private use. You are welcome to try it, but it comes without any promise of support.
 
 Generates distant terrain for [Voxy](https://modrinth.com/mod/voxy) LODs without creating or saving real chunks.
-Minecraft 26.2, Fabric.
+Minecraft 26.3, Fabric.
 
 Instead of generating real chunks far away (slow, and they fill up the save), this mod runs the world generation
 steps that shape what an LOD shows on its own thread pool, hands the result to Voxy and throws it away again.
@@ -96,8 +96,8 @@ Progress is stored per player and dimension in `<world>/lodgen/players/`.
 
 ## Building
 
-Voxy is not published to a maven repository and may not be redistributed, so the build compiles against a local
-Voxy jar (`voxy_jar` in `gradle.properties`); it is not bundled.
+The build compiles against Voxy from Modrinth's maven (`voxy_version` in `gradle.properties`, a Modrinth version
+id); it is not bundled.
 
 `./gradlew runServer` starts a benchmark (`-Dlodgen.benchmark=true`): it generates around the world spawn without
 a player or Voxy and logs the speed, discarding the results.

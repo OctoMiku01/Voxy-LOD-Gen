@@ -25,6 +25,7 @@ import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeGenerationSettings;
 import net.minecraft.world.level.biome.BiomeManager;
+import net.minecraft.world.level.biome.BiomeResolver;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.DataLayer;
@@ -38,14 +39,13 @@ import net.minecraft.world.level.chunk.storage.SerializableChunkData;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import net.minecraft.world.level.levelgen.RandomState;
-import net.minecraft.world.level.levelgen.WorldGenerationContext;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Generates the terrain of one chunk for an LOD and hands it to Voxy.
  * <p>
- * Only the steps that shape what an LOD shows run here: biomes, noise (base terrain), surface, carvers (caves and
+ * Only the steps that shape what an LOD shows run here: biomes, terrain (noise, surface and carvers: caves and
  * ravines, so their openings show from afar) and, for closer LODs,
  * features and structures, then light. Mob spawning and saving are skipped. The chunk never enters the vanilla chunk
  * system, so nothing is loaded, ticked or written to the region files.
@@ -53,7 +53,7 @@ import org.jetbrains.annotations.Nullable;
 final class LodChunkBuilder {
     /** Enough for the edges of the tiles around the one being built, a few hundred MB at most */
     private static final int MAX_EDGE_TERRAIN = 4096;
-    private static final ChunkStep CARVERS_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.CARVERS);
+    private static final ChunkStep TERRAIN_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.TERRAIN);
     private static final ChunkStep FEATURES_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES);
 
     private final ServerLevel level;
@@ -61,7 +61,6 @@ final class LodChunkBuilder {
     private final BiomeSource biomeSource;
     private final RandomState randomState;
     private final StructureManager structures;
-    private final WorldGenerationContext context;
     private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
     private final CarverSource carverSource;
@@ -83,7 +82,6 @@ final class LodChunkBuilder {
         this.biomeSource = generator.getBiomeSource();
         this.randomState = level.getChunkSource().randomState();
         this.structures = structures ? new LodStructures(level) : new NoStructures(level);
-        this.context = new WorldGenerationContext(generator, level);
         // Surface rules only use this to skip rules for biomes that cannot occur; a superset is always correct
         this.possibleBiomes = this.biomeSource.possibleBiomes();
         this.biomeZoomSeed = BiomeManager.obfuscateSeed(level.getSeed());
@@ -197,8 +195,9 @@ final class LodChunkBuilder {
         ChunkPos pos = chunk.getPos();
         Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
-        // Features can only reach the direct neighbours, WorldGenRegion refuses anything further away
-        StaticCache2D<GenerationChunkHolder> neighbours = StaticCache2D.create(pos.x(), pos.z(), FEATURES_STEP.directDependencies().getRadius(),
+        // Features can only reach the direct neighbours (structures come from this.structures, not from the chunks
+        // further out the step asks for), and WorldGenRegion looks up every chunk in the cache right away
+        StaticCache2D<GenerationChunkHolder> neighbours = StaticCache2D.create(pos.x(), pos.z(), FEATURES_STEP.blockStateWriteRadius(),
                 (x, z) -> holders.get(LodGenerator.pack(x, z)));
         WorldGenRegion region = new WorldGenRegion(this.level, neighbours, FEATURES_STEP, chunk);
         this.generator.applyBiomeDecoration(region, chunk, this.structures);
@@ -228,7 +227,7 @@ final class LodChunkBuilder {
         for (int i = 0; i < sections.length; i++) {
             sections[i] = copy(terrain[i]);
         }
-        chunk.setPersistedStatus(ChunkStatus.CARVERS);
+        chunk.setPersistedStatus(ChunkStatus.TERRAIN);
         return chunk;
     }
 
@@ -238,26 +237,21 @@ final class LodChunkBuilder {
         // Like vanilla, mark each finished step: the chunk refuses e.g. biome lookups before its biomes exist
         this.generator.createBiomes(this.randomState, Blender.empty(), this.structures, chunk).join();
         chunk.setPersistedStatus(ChunkStatus.BIOMES);
-        this.generator.fillFromNoise(Blender.empty(), this.randomState, this.structures, chunk).join();
-        chunk.setPersistedStatus(ChunkStatus.NOISE);
-        BiomeManager biomes = this.biomeManager(chunk);
-        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, biomes, Blender.empty(), this.possibleBiomes);
-        chunk.setPersistedStatus(ChunkStatus.SURFACE);
-        this.carve(chunk, biomes);
-        chunk.setPersistedStatus(ChunkStatus.CARVERS);
+        this.generator.buildTerrain(chunk, Blender.empty(), this.randomState, this.structures, this.biomeManager(chunk), this.carverRegion(chunk),
+                this.possibleBiomes).join();
+        chunk.setPersistedStatus(ChunkStatus.TERRAIN);
         return chunk;
     }
 
     /**
-     * Like vanilla's carvers step. Caves and ravines start up to 8 chunks away, and the carvers only ask those chunks
-     * for their biome: {@link CarverRegion} answers that without needing the chunks themselves. They only write to
-     * this chunk.
+     * For the carvers in vanilla's terrain step. Caves and ravines start up to 8 chunks away, and the carvers only ask
+     * those chunks for their biome: {@link CarverRegion} answers that without needing the chunks themselves. They only
+     * write to this chunk.
      */
-    private void carve(ProtoChunk chunk, BiomeManager biomes) {
+    private WorldGenRegion carverRegion(ProtoChunk chunk) {
         ChunkPos pos = chunk.getPos();
-        StaticCache2D<GenerationChunkHolder> self = StaticCache2D.create(pos.x(), pos.z(), 0, (x, z) -> new LodChunkHolder(chunk, ChunkStatus.SURFACE));
-        WorldGenRegion region = new CarverRegion(this.level, self, chunk, this.carverSource);
-        this.generator.applyCarvers(region, this.level.getSeed(), this.randomState, biomes, this.structures, chunk);
+        StaticCache2D<GenerationChunkHolder> self = StaticCache2D.create(pos.x(), pos.z(), 0, (x, z) -> new LodChunkHolder(chunk, ChunkStatus.BIOMES));
+        return new CarverRegion(this.level, self, chunk, this.carverSource);
     }
 
     private static final class CarverRegion extends WorldGenRegion {
@@ -265,7 +259,7 @@ final class LodChunkBuilder {
         private final CarverSource source;
 
         CarverRegion(ServerLevel level, StaticCache2D<GenerationChunkHolder> cache, ProtoChunk center, CarverSource source) {
-            super(level, cache, CARVERS_STEP, center);
+            super(level, cache, TERRAIN_STEP, center);
             this.center = center;
             this.source = source;
         }
@@ -310,6 +304,7 @@ final class LodChunkBuilder {
     private BiomeManager biomeManager(ProtoChunk chunk) {
         ChunkPos pos = chunk.getPos();
         Long2ObjectOpenHashMap<Holder<Biome>> neighbours = new Long2ObjectOpenHashMap<>();
+        BiomeResolver resolver = this.biomeSource.createUncachedResolver(this.randomState);
         return new BiomeManager((quartX, quartY, quartZ) -> {
             if (QuartPos.toSection(quartX) == pos.x() && QuartPos.toSection(quartZ) == pos.z()) {
                 return chunk.getNoiseBiome(quartX, quartY, quartZ);
@@ -317,7 +312,7 @@ final class LodChunkBuilder {
             long key = BlockPos.asLong(quartX, quartY, quartZ);
             Holder<Biome> biome = neighbours.get(key);
             if (biome == null) {
-                biome = this.biomeSource.getNoiseBiome(quartX, quartY, quartZ, this.randomState.sampler());
+                biome = resolver.getNoiseBiome(quartX, quartY, quartZ);
                 neighbours.put(key, biome);
             }
             return biome;

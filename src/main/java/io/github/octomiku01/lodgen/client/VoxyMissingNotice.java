@@ -1,11 +1,12 @@
 package io.github.octomiku01.lodgen.client;
 
+import com.mojang.blaze3d.Blaze3D;
+import java.net.URI;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.Util;
 
 /** Without Voxy this mod shows nothing: says so once per start, when the title screen first shows */
 final class VoxyMissingNotice {
@@ -24,7 +25,7 @@ final class VoxyMissingNotice {
         shown = true;
         client.gui.setScreen(new ConfirmScreen(open -> {
             if (open) {
-                Util.getPlatform().openUri(VOXY_PAGE);
+                Blaze3D.openUri(URI.create(VOXY_PAGE));
             }
             client.gui.setScreen(title);
         }, Component.translatable("lodgen.voxyMissing.title"), Component.translatable("lodgen.voxyMissing.message"),

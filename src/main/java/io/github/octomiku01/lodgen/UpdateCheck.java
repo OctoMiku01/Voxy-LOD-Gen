@@ -33,7 +33,8 @@ import org.jetbrains.annotations.Nullable;
  * fails, the old jar stays and the swap is tried again at the next quit.
  */
 public final class UpdateCheck {
-    private static final String RELEASES = "https://api.github.com/repos/OctoMiku01/Voxy-LOD-Gen/releases?per_page=30";
+    /** As many as GitHub gives at once: a bugfix for an older Minecraft version may come after many newer releases */
+    private static final String RELEASES ="https://api.github.com/repos/OctoMiku01/Voxy-LOD-Gen/releases?per_page=100";
     private static final String UPDATE_SUFFIX = ".update";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
 

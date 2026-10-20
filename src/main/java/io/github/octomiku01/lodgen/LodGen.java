@@ -68,7 +68,7 @@ public class LodGen implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
                 Commands.literal("lodgen")
-                        .executes(context -> reply(context, generator == null ? "not running" : generator.status(context.getSource().getPlayer())))
+                        .executes(context -> reply(context, generator == null ? notRunning() : generator.statusMessage(context.getSource().getPlayer())))
                         .then(Commands.literal("pause").executes(context -> setPaused(context, true)))
                         .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
                         .then(Commands.literal("reset").executes(LodGen::reset))
@@ -101,33 +101,41 @@ public class LodGen implements ModInitializer {
 
     private static int setPaused(CommandContext<CommandSourceStack> context, boolean paused) {
         if (generator == null) {
-            return reply(context, "not running");
+            return reply(context, notRunning());
         }
         generator.setPaused(paused);
-        return reply(context, paused ? "paused" : "resumed");
+        return reply(context, paused ? LodChat.warning("Paused, /lodgen resume continues") : LodChat.success("Resumed"));
     }
 
     // e.g. after deleting Voxy's data: all LODs of the current dimension are sent again
     private static int reset(CommandContext<CommandSourceStack> context) {
         ServerPlayer player = context.getSource().getPlayer();
-        if (generator == null || player == null) {
-            return reply(context, "not running");
+        if (generator == null) {
+            return reply(context, notRunning());
         }
-        return reply(context, generator.reset(player) ? "your LODs in this dimension will be generated again" : "you get no LODs");
+        if (player == null) {
+            return reply(context, LodChat.error("Only players can reset their LODs"));
+        }
+        return reply(context, generator.reset(player) ? LodChat.success("Your LODs in this dimension will be generated again")
+                : LodChat.warning("You get no LODs: this mod or Voxy is missing on your client"));
     }
 
     // Diagnostics: how well the LODs around the player match the real chunks there
     private static int compare(CommandContext<CommandSourceStack> context) {
         ServerPlayer player = context.getSource().getPlayer();
         if (player == null) {
-            return reply(context, "only players can compare");
+            return reply(context, LodChat.error("Only players can compare"));
         }
         LodCompare.start(context.getSource(), player);
         return 1;
     }
 
-    private static int reply(CommandContext<CommandSourceStack> context, String message) {
-        context.getSource().sendSuccess(() -> Component.literal("[Voxy LOD Gen] " + message), false);
+    private static Component notRunning() {
+        return LodChat.error("Not running: LOD generation is turned off in the settings");
+    }
+
+    private static int reply(CommandContext<CommandSourceStack> context, Component message) {
+        context.getSource().sendSuccess(() -> message, false);
         return 1;
     }
 }

@@ -5,10 +5,8 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.chunk.StructureAccess;
 import net.minecraft.world.level.levelgen.structure.Structure;
@@ -32,12 +30,12 @@ final class NoStructures extends StructureManager {
     }
 
     @Override
-    public List<StructureStart> startsForStructure(ChunkPos pos, Predicate<Structure> predicate) {
+    public List<StructureStart> startsForStructure(int sectionX, int sectionZ, Predicate<Structure> predicate) {
         return List.of();
     }
 
     @Override
-    public List<StructureStart> startsForStructure(SectionPos pos, Structure structure) {
+    public List<StructureStart> startsForStructure(int sectionX, int sectionZ, Structure structure) {
         return List.of();
     }
 
@@ -46,16 +44,16 @@ final class NoStructures extends StructureManager {
     }
 
     @Override
-    public StructureStart getStartForStructure(SectionPos pos, Structure structure, StructureAccess chunk) {
+    public StructureStart getStartForStructure(Structure structure, StructureAccess chunk) {
         return null;
     }
 
     @Override
-    public void setStartForStructure(SectionPos pos, Structure structure, StructureStart start, StructureAccess chunk) {
+    public void setStartForStructure(Structure structure, StructureStart start, StructureAccess chunk) {
     }
 
     @Override
-    public void addReferenceForStructure(SectionPos pos, Structure structure, long reference, StructureAccess chunk) {
+    public void addReferenceForStructure(Structure structure, long reference, StructureAccess chunk) {
     }
 
     @Override

@@ -1,6 +1,6 @@
 // Minecraft 26.x ships unobfuscated, so this uses the non-remapping Fabric Loom.
 plugins {
-    id("net.fabricmc.fabric-loom") version "1.18.3"
+    id("net.fabricmc.fabric-loom") version "1.19.2"
 }
 
 val minecraft = property("minecraft_version") as String
@@ -25,13 +25,14 @@ tasks.withType<JavaCompile>().configureEach {
 repositories {
     maven("https://maven.terraformersmc.com/releases") { content { includeGroup("com.terraformersmc") } }
     maven("https://maven.shedaniel.me") { content { includeGroup("me.shedaniel.cloth") } }
+    maven("https://api.modrinth.com/maven") { content { includeGroup("maven.modrinth") } }
 }
 
 dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
     implementation("net.fabricmc:fabric-loader:${property("loader_version")}")
     implementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_api_version")}")
-    compileOnly(files(property("voxy_jar")))
+    compileOnly("maven.modrinth:voxy:${property("voxy_version")}") { isTransitive = false }
     // Optional: the settings screen shows up in Mod Menu when both are installed
     compileOnly("com.terraformersmc:modmenu:${property("modmenu_version")}") { isTransitive = false }
     compileOnly("me.shedaniel.cloth:cloth-config-fabric:${property("cloth_config_version")}") { isTransitive = false }

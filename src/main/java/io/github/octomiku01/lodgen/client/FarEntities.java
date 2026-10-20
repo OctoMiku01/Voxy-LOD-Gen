@@ -297,7 +297,7 @@ public final class FarEntities {
             for (Player player : current.players()) {
                 if (player != client.player && player != client.getCameraEntity()
                         && player.distanceToSqr(camera.pos) >= VANILLA_NAME_TAG_DISTANCE * VANILLA_NAME_TAG_DISTANCE
-                        && frustum != null && dispatcher.shouldRender(player, frustum, camera.pos.x, camera.pos.y, camera.pos.z)) {
+                        && frustum != null && dispatcher.shouldRender(player, frustum, camera.pos.x, camera.pos.y, camera.pos.z, partialTick)) {
                     addNameTag(nameTags, player, client, frustum, partialTick, dispatcher.getPackedLightCoords(player, partialTick));
                 }
             }
@@ -354,7 +354,7 @@ public final class FarEntities {
                 float scale = 0.025F * (float) Math.pow(Math.max(1.0, nameTag.position.distanceTo(camera.pos) / 16.0), 0.85);
                 poseStack.pushPose();
                 poseStack.translate(nameTag.position.subtract(camera.pos));
-                poseStack.mulPose(camera.orientation);
+                poseStack.rotate(camera.orientation);
                 poseStack.scale(scale, -scale, scale);
                 context.submitNodeCollector().submitText(poseStack, -client.font.width(nameTag.name) / 2.0F, 0, nameTag.name.getVisualOrderText(),
                         false, mode, nameTag.light, -1, plate ? background : 0, 0);
