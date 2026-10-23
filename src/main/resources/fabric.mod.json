@@ -7,6 +7,11 @@
 	"authors": [
 		"OctoMiku01"
 	],
+	"contact": {
+		"homepage": "https://github.com/OctoMiku01/Voxy-LOD-Gen",
+		"sources": "https://github.com/OctoMiku01/Voxy-LOD-Gen",
+		"issues": "https://github.com/OctoMiku01/Voxy-LOD-Gen/issues"
+	},
 	"license": "MIT",
 	"icon": "assets/lodgen/icon.png",
 	"environment": "*",
