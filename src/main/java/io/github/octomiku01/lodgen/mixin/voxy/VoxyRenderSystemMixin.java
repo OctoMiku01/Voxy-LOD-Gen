@@ -1,5 +1,6 @@
 package io.github.octomiku01.lodgen.mixin.voxy;
 
+import io.github.octomiku01.lodgen.client.LodOcclusion;
 import io.github.octomiku01.lodgen.client.map.MapCamera;
 import io.github.octomiku01.lodgen.client.map.ShaderMap;
 import io.github.octomiku01.lodgen.client.map.VoxyWarmup;
@@ -52,6 +53,12 @@ public abstract class VoxyRenderSystemMixin {
     @Inject(method = "<init>", at = @At("RETURN"), require = 0)
     private void lodgen$warmUp(CallbackInfo info) {
         VoxyWarmup.rendererCreated();
+    }
+
+    // Far players behind LOD terrain, for shader packs that keep the LODs' depth to themselves
+    @Inject(method = "renderOpaque", at = @At("RETURN"), require = 0)
+    private void lodgen$readDepthForFarPlayers(CallbackInfo info) {
+        LodOcclusion.afterVoxy((VoxyRenderSystem) (Object) this);
     }
 
     @Inject(method = "renderOpaque", at = @At("HEAD"), cancellable = true, require = 0)

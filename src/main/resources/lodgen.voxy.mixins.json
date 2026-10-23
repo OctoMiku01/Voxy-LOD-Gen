@@ -4,6 +4,7 @@
 	"plugin": "io.github.octomiku01.lodgen.mixin.voxy.VoxyMixinPlugin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
+		"EntityRenderDispatcherMixin",
 		"RenderPipelineFactoryMixin",
 		"SectionCullMixin",
 		"VoxyClientMixin",
