@@ -36,6 +36,7 @@ public final class UpdateCheck {
     /** As many as GitHub gives at once: a bugfix for an older Minecraft version may come after many newer releases */
     private static final String RELEASES ="https://api.github.com/repos/OctoMiku01/Voxy-LOD-Gen/releases?per_page=100";
     private static final String UPDATE_SUFFIX = ".update";
+    private static final String MOD_SYNCHRONIZER = "modsync";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
     /** A newer release; {@code downloaded} once its jar waits to be swapped in when the game quits */
@@ -60,12 +61,19 @@ public final class UpdateCheck {
 
     public static void start() {
         LodConfig config = LodConfig.load();
-        if (!config.checkForUpdates && !config.autoUpdate) {
+        // Mod Synchronizer keeps the mods in line with a shared list: a jar swapped in here would leave this mod twice
+        // in the mods folder once it installs the version from the list, and the game would not start
+        boolean managed = FabricLoader.getInstance().isModLoaded(MOD_SYNCHRONIZER);
+        if (managed && config.autoUpdate) {
+            LodGen.LOGGER.info("Not updating automatically: Mod Synchronizer manages the mods");
+        }
+        boolean autoUpdate = config.autoUpdate && !managed;
+        if (!config.checkForUpdates && !autoUpdate) {
             return;
         }
         Thread thread = new Thread(() -> {
             try {
-                check(config.autoUpdate);
+                check(autoUpdate);
             } catch (IOException | RuntimeException e) {
                 LodGen.LOGGER.warn("Could not check for a newer version of Voxy LOD Gen: {}", e.toString());
             } catch (InterruptedException e) {
@@ -87,7 +95,7 @@ public final class UpdateCheck {
         String minecraft = installed[1];
         @Nullable Path jar = runningJar(mod);
         if (jar != null) {
-            adoptDownloaded(jar, version);
+            adoptDownloaded(jar, version, autoUpdate);
         }
 
         JsonArray releases;
@@ -209,8 +217,11 @@ public final class UpdateCheck {
         }
     }
 
-    /** An update downloaded at an earlier start that could not be swapped in yet is swapped in at this quit */
-    private static void adoptDownloaded(Path jar, String version) {
+    /**
+     * An update downloaded at an earlier start that could not be swapped in yet is swapped in at this quit; with
+     * {@code install} off (automatic updates turned off since, or Mod Synchronizer installed) it is deleted instead
+     */
+    private static void adoptDownloaded(Path jar, String version, boolean install) {
         try (Stream<Path> files = Files.list(jar.getParent())) {
             for (Path file : files.toList()) {
                 String name = file.getFileName().toString();
@@ -218,7 +229,7 @@ public final class UpdateCheck {
                     continue;
                 }
                 String fileVersion = name.substring("voxy-lodgen-".length()).split("\\+", 2)[0];
-                if (compare(fileVersion, version) > 0 && update == null) {
+                if (install && compare(fileVersion, version) > 0 && update == null) {
                     update = new Update(fileVersion, "https://github.com/OctoMiku01/Voxy-LOD-Gen/releases", true);
                     scheduleInstall(jar, file);
                 } else {

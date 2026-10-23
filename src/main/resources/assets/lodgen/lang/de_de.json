@@ -73,7 +73,7 @@
   "config.lodgen.checkForUpdates": "Nach Updates suchen",
   "config.lodgen.checkForUpdates.tooltip": "Fragt bei jedem Start auf GitHub nach, ob es eine neuere Version für diese Minecraft-Version gibt, und sagt es dir im Chat",
   "config.lodgen.autoUpdate": "Automatisch aktualisieren",
-  "config.lodgen.autoUpdate.tooltip": "Lädt eine neuere Version selbst herunter, prüft ihre SHA-256-Prüfsumme und tauscht sie beim Beenden des Spiels ein. Wirkt ab dem nächsten Start",
+  "config.lodgen.autoUpdate.tooltip": "Lädt eine neuere Version selbst herunter, prüft ihre SHA-256-Prüfsumme und tauscht sie beim Beenden des Spiels ein. Wirkt ab dem nächsten Start. Aus, solange Mod Synchronizer installiert ist: Der hält die Mods dann selbst aktuell",
   "lodgen.update.available": "Voxy LOD Gen %s ist verfügbar (installiert: %s).",
   "lodgen.update.downloaded": "Voxy LOD Gen %s ist heruntergeladen (installiert: %s) und wird beim Beenden des Spiels installiert.",
   "lodgen.update.open": "[Release ansehen]",
