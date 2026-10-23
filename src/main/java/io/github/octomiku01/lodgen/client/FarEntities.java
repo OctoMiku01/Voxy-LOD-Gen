@@ -263,6 +263,12 @@ public final class FarEntities {
             if (isShownByGame(entity, current)) {
                 continue;
             }
+            if (LodOcclusion.active()) {
+                requestOcclusion(entity);
+                if (LodOcclusion.hidden(entity.getUUID())) {
+                    continue;
+                }
+            }
             // Their chunks are not loaded here, so the light comes from the server; burning ones glow, as in vanilla
             int light = LightCoordsUtil.pack(entity.isOnFire() ? 15 : far.light >> 4 & 15, far.light & 15);
             if (names && entity instanceof RemotePlayer player && !player.getGameProfile().name().isEmpty()) {
@@ -292,6 +298,14 @@ public final class FarEntities {
             ENTITIES.values().remove(far);
             broken(far.entity.getType(), far, null);
         }
+        if (LodOcclusion.active()) {
+            // Real players too: at the edge of the loaded chunks they can stand under terrain that only LODs show
+            for (Player player : current.players()) {
+                if (player != client.player && player != client.getCameraEntity()) {
+                    requestOcclusion(player);
+                }
+            }
+        }
         if (names) {
             // Real players beyond vanilla's name tag distance that the game still draws
             for (Player player : current.players()) {
@@ -303,6 +317,13 @@ public final class FarEntities {
             }
             submitNameTags(nameTags, context, camera, client);
         }
+    }
+
+    /** Behind LOD terrain once neither the middle of the body nor the head shows */
+    private static void requestOcclusion(Entity entity) {
+        AABB box = entity.getBoundingBox();
+        Vec3 middle = box.getCenter();
+        LodOcclusion.request(entity.getUUID(), middle, new Vec3(middle.x, box.maxY - 0.2, middle.z));
     }
 
     private record NameTag(Component name, Vec3 position, int light) {
@@ -346,12 +367,16 @@ public final class FarEntities {
     private static void submitNameTags(List<NameTag> nameTags, LevelRenderContext context, CameraRenderState camera, Minecraft client) {
         PoseStack poseStack = context.poseStack();
         int background = (int) (client.options.getBackgroundOpacity(0.25F) * 255.0F) << 24;
+        // Zooming in (spyglass, Zoomify...) narrows the view and makes everything larger: the tags then size themselves
+        // as if the player were that much closer, so they keep the size they would have there without zooming
+        double zoom = Math.max(1.0, Math.tan(Math.toRadians(client.options.fov().get()) / 2.0) * camera.projectionMatrix.m11());
         for (Font.DisplayMode mode : new Font.DisplayMode[]{Font.DisplayMode.NORMAL, Font.DisplayMode.POLYGON_OFFSET}) {
             boolean plate = mode == Font.DisplayMode.NORMAL;
             for (NameTag nameTag : nameTags) {
                 // Vanilla's size up close, then they shrink only slowly: about 8 pixels high at 64 blocks on a 1080p
                 // screen, still 5 at 2000 (vanilla's would be 2 at 64 blocks)
-                float scale = 0.025F * (float) Math.pow(Math.max(1.0, nameTag.position.distanceTo(camera.pos) / 16.0), 0.85);
+                double distance = nameTag.position.distanceTo(camera.pos) / zoom;
+                float scale = 0.025F * (float) Math.pow(Math.max(1.0, distance / 16.0), 0.85);
                 poseStack.pushPose();
                 poseStack.translate(nameTag.position.subtract(camera.pos));
                 poseStack.rotate(camera.orientation);
