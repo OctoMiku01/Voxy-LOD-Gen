@@ -1,5 +1,6 @@
 package io.github.octomiku01.lodgen;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -19,6 +20,8 @@ import org.slf4j.LoggerFactory;
 public class LodGen implements ModInitializer {
     public static final String MOD_ID = "lodgen";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    /** Chunks around where /lodgen bench runs, without a radius given */
+    private static final int BENCH_RADIUS = 32;
 
     private static @Nullable LodGenerator generator;
     private static @Nullable FarPlayers farPlayers;
@@ -73,6 +76,10 @@ public class LodGen implements ModInitializer {
                         .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
                         .then(Commands.literal("reset").executes(LodGen::reset))
                         .then(Commands.literal("compare").executes(LodGen::compare))
+                        .then(Commands.literal("bench").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                                .executes(context -> bench(context, BENCH_RADIUS))
+                                .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
+                                        .executes(context -> bench(context, IntegerArgumentType.getInteger(context, "radius")))))
         ));
     }
 
@@ -127,6 +134,12 @@ public class LodGen implements ModInitializer {
             return reply(context, LodChat.error("Only players can compare"));
         }
         LodCompare.start(context.getSource(), player);
+        return 1;
+    }
+
+    // Measures generation speed around where the command runs, see LodBench
+    private static int bench(CommandContext<CommandSourceStack> context, int radius) {
+        LodBench.start(context.getSource(), radius, LodConfig.load(), generator);
         return 1;
     }
 
