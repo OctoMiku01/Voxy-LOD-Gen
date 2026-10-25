@@ -99,6 +99,9 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
   the threads of the performance setting; the generation pauses meanwhile. Handy for choosing a performance level and
   for bug reports
 
+The F3 screen shows a line with the speed, threads and performance level of the world you host, or how many LODs
+came from the server. It can be switched off like every entry there (F3 + F6).
+
 Progress is stored per player and dimension in `<world>/lodgen/players/`.
 
 ## Building

@@ -16,6 +16,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -556,6 +557,13 @@ final class LodGenerator {
             text.append("; you get no LODs (this mod or Voxy is missing on your client)");
         }
         return text.toString();
+    }
+
+    /** Short, for the F3 screen; called on the render thread */
+    String debugLine() {
+        String state = this.paused ? ", paused" : this.throttled ? ", slowed down (busy server)" : "";
+        return String.format(Locale.ROOT, "LOD Gen: %.1f chunks/s, %d threads (%s)%s, %d built", this.rate, this.threads(),
+                this.config.performance.name().toLowerCase(Locale.ROOT), state, this.generated.get());
     }
 
     /** The same as {@link #status}, laid out over several lines with colours, for the /lodgen command */

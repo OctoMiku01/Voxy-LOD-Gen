@@ -7,6 +7,7 @@ import io.github.octomiku01.lodgen.MapPlayersPayload;
 import io.github.octomiku01.lodgen.client.map.MapPlayers;
 import io.github.octomiku01.lodgen.client.map.MapScreen;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -20,6 +21,8 @@ import org.lwjgl.glfw.GLFW;
 public class LodGenClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        LodDebugEntry.register();
+        ClientLifecycleEvents.CLIENT_STARTED.register(LodDebugEntry::showByDefault);
         if (!FabricLoader.getInstance().isModLoaded("voxy")) {
             ClientTickEvents.END_CLIENT_TICK.register(VoxyMissingNotice::tick);
         }

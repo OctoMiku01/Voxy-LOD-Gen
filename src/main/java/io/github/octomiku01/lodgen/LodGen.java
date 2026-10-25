@@ -83,6 +83,12 @@ public class LodGen implements ModInitializer {
         ));
     }
 
+    /** One line about the generation of the world this game hosts, for the F3 screen; null if it does not generate */
+    public static @Nullable String debugLine() {
+        LodGenerator current = generator;
+        return current == null ? null : current.debugLine();
+    }
+
     /** Applies changed settings: the generator starts over with them, keeping every player's progress */
     public static void restart(MinecraftServer server) {
         server.execute(() -> {
