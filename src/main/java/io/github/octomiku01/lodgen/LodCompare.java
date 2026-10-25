@@ -52,7 +52,7 @@ final class LodCompare {
         SavedChunks saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), server.getWorldPath(LevelResource.ROOT)).resolve("region"));
         reply(source, LodChat.info("Building the LODs around you, this takes a few seconds..."));
 
-        Thread thread = new Thread(() -> {
+        Thread thread = new LodWorkerThread(() -> {
             try {
                 List<ChunkPos> real = new ArrayList<>();
                 for (int x = minX; x < minX + SIZE; x++) {
@@ -74,7 +74,6 @@ final class LodCompare {
                 server.execute(() -> reply(source, LodChat.error("Comparison failed: " + t)));
             }
         }, "LodGen-Compare");
-        thread.setDaemon(true);
         thread.start();
     }
 

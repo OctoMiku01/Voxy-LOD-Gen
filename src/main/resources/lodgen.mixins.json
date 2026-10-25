@@ -5,6 +5,7 @@
 	"mixins": [
 		"ChunkMapInvoker",
 		"GenerationChunkHolderAccessor",
+		"GeneratorExecutorMixin",
 		"NoiseBasedChunkGeneratorMixin",
 		"StructurePaletteMixin",
 		"SynchedEntityDataAccessor"

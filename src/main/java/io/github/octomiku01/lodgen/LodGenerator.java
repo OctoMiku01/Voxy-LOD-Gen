@@ -423,8 +423,7 @@ final class LodGenerator {
         this.localVoxy = !server.isDedicatedServer() && FabricLoader.getInstance().isModLoaded("voxy");
         AtomicInteger threadNumber = new AtomicInteger();
         this.workers = new ThreadPoolExecutor(config.threads, config.threads, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), runnable -> {
-            Thread thread = new Thread(runnable, "LodGen-Worker-" + threadNumber.incrementAndGet());
-            thread.setDaemon(true);
+            Thread thread = new LodWorkerThread(runnable, "LodGen-Worker-" + threadNumber.incrementAndGet());
             thread.setPriority(Thread.MIN_PRIORITY);
             return thread;
         });
