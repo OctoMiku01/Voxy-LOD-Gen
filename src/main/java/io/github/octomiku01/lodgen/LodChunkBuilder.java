@@ -55,6 +55,7 @@ import org.jetbrains.annotations.Nullable;
 final class LodChunkBuilder {
     /** Enough for the edges of the tiles around the one being built, a few hundred MB at most */
     private static final int MAX_EDGE_TERRAIN = 4096;
+    private static final ChunkStep SURFACE_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.SURFACE);
     private static final ChunkStep CARVERS_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.CARVERS);
     private static final ChunkStep FEATURES_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES);
 
@@ -269,7 +270,14 @@ final class LodChunkBuilder {
         this.generator.fillFromNoise(Blender.empty(), this.randomState, this.structures, chunk).join();
         chunk.setPersistedStatus(ChunkStatus.NOISE);
         BiomeManager biomes = this.biomeManager(chunk);
-        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, biomes, Blender.empty(), possibleBiomes);
+        if (this.generator instanceof NoiseBasedChunkGenerator noise) {
+            noise.buildSurface(chunk, this.context, this.randomState, this.structures, biomes, Blender.empty(), possibleBiomes);
+        } else {
+            // Other generators only have the form of vanilla's surface step, over a region of just this chunk
+            ChunkPos pos = chunk.getPos();
+            StaticCache2D<GenerationChunkHolder> self = StaticCache2D.create(pos.x(), pos.z(), 0, (x, z) -> new LodChunkHolder(chunk, ChunkStatus.NOISE));
+            this.generator.buildSurface(new WorldGenRegion(this.level, self, SURFACE_STEP, chunk), this.structures, this.randomState, chunk);
+        }
         chunk.setPersistedStatus(ChunkStatus.SURFACE);
         this.carve(chunk, biomes);
         chunk.setPersistedStatus(ChunkStatus.CARVERS);
