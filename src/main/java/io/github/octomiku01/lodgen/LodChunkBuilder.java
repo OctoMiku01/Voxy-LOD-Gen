@@ -5,6 +5,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,6 @@ final class LodChunkBuilder {
     private final RandomState randomState;
     private final StructureManager structures;
     private final WorldGenerationContext context;
-    private final Set<Holder<Biome>> possibleBiomes;
     private final long biomeZoomSeed;
     private final CarverSource carverSource;
     private final boolean keepUnderground;
@@ -84,8 +84,6 @@ final class LodChunkBuilder {
         this.randomState = level.getChunkSource().randomState();
         this.structures = structures ? new LodStructures(level) : new NoStructures(level);
         this.context = new WorldGenerationContext(generator, level);
-        // Surface rules only use this to skip rules for biomes that cannot occur; a superset is always correct
-        this.possibleBiomes = this.biomeSource.possibleBiomes();
         this.biomeZoomSeed = BiomeManager.obfuscateSeed(level.getSeed());
         this.carverSource = new CarverSource(level);
         this.keepUnderground = keepUnderground;
@@ -132,7 +130,8 @@ final class LodChunkBuilder {
     /** Terrain only: what distant LODs show */
     LodChunk build(ChunkPos pos) {
         Long2ObjectOpenHashMap<ProtoChunk> chunks = new Long2ObjectOpenHashMap<>();
-        ProtoChunk chunk = this.generateTerrain(pos);
+        ProtoChunk chunk = this.generateBiomes(pos);
+        this.generateTerrain(chunk, possibleBiomes(chunk));
         chunks.put(LodGenerator.pack(pos.x(), pos.z()), chunk);
         return this.toLodChunk(chunk, LodLight.light(this.level, chunks, pos.x(), pos.z(), 1));
     }
@@ -153,15 +152,30 @@ final class LodChunkBuilder {
      *                 depend on that order, and {@code /lodgen compare} uses it to measure how much
      */
     List<LodChunk> buildTile(int minX, int minZ, int size, BooleanSupplier cancelled, boolean reversed) {
+        // Biomes first, one ring further out than the terrain: the surface rules of each chunk need its neighbours'
+        // biomes, see possibleBiomes. They cost little next to the terrain
+        Long2ObjectOpenHashMap<ProtoChunk> biomes = new Long2ObjectOpenHashMap<>();
+        for (int x = minX - 3; x < minX + size + 3; x++) {
+            for (int z = minZ - 3; z < minZ + size + 3; z++) {
+                checkCancelled(cancelled);
+                long key = LodGenerator.pack(x, z);
+                boolean outer = x < minX - 2 || x >= minX + size + 2 || z < minZ - 2 || z >= minZ + size + 2;
+                LevelChunkSection[] cached = outer ? null : this.edgeTerrain.get(key);
+                biomes.put(key, cached != null ? this.restoreTerrain(new ChunkPos(x, z), cached) : this.generateBiomes(new ChunkPos(x, z)));
+            }
+        }
         Long2ObjectOpenHashMap<ProtoChunk> chunks = new Long2ObjectOpenHashMap<>();
         for (int x = minX - 2; x < minX + size + 2; x++) {
             for (int z = minZ - 2; z < minZ + size + 2; z++) {
                 checkCancelled(cancelled);
                 long key = LodGenerator.pack(x, z);
-                LevelChunkSection[] cached = this.edgeTerrain.get(key);
-                ProtoChunk chunk = cached != null ? this.restoreTerrain(new ChunkPos(x, z), cached) : this.generateTerrain(new ChunkPos(x, z));
-                if (cached == null && (x < minX + 2 || x >= minX + size - 2 || z < minZ + 2 || z >= minZ + size - 2)) {
-                    this.edgeTerrain.put(key, copy(chunk.getSections()));
+                ProtoChunk chunk = biomes.get(key);
+                // Chunks restored from the edge cache already have their terrain
+                if (chunk.getPersistedStatus() == ChunkStatus.BIOMES) {
+                    this.generateTerrain(chunk, possibleBiomes(biomes, x, z));
+                    if (x < minX + 2 || x >= minX + size - 2 || z < minZ + 2 || z >= minZ + size - 2) {
+                        this.edgeTerrain.put(key, copy(chunk.getSections()));
+                    }
                 }
                 chunks.put(key, chunk);
             }
@@ -232,20 +246,53 @@ final class LodChunkBuilder {
         return chunk;
     }
 
-    private ProtoChunk generateTerrain(ChunkPos pos) {
+    private ProtoChunk generateBiomes(ChunkPos pos) {
         ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
-
-        // Like vanilla, mark each finished step: the chunk refuses e.g. biome lookups before its biomes exist
         this.generator.createBiomes(this.randomState, Blender.empty(), this.structures, chunk).join();
+        // Like vanilla, mark each finished step: the chunk refuses e.g. biome lookups before its biomes exist
         chunk.setPersistedStatus(ChunkStatus.BIOMES);
+        return chunk;
+    }
+
+    /** @param possibleBiomes see {@link #possibleBiomes(ProtoChunk)} */
+    private void generateTerrain(ProtoChunk chunk, Set<Holder<Biome>> possibleBiomes) {
         this.generator.fillFromNoise(Blender.empty(), this.randomState, this.structures, chunk).join();
         chunk.setPersistedStatus(ChunkStatus.NOISE);
         BiomeManager biomes = this.biomeManager(chunk);
-        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, biomes, Blender.empty(), this.possibleBiomes);
+        this.generator.buildSurface(chunk, this.context, this.randomState, this.structures, biomes, Blender.empty(), possibleBiomes);
         chunk.setPersistedStatus(ChunkStatus.SURFACE);
         this.carve(chunk, biomes);
         chunk.setPersistedStatus(ChunkStatus.CARVERS);
-        return chunk;
+    }
+
+    /**
+     * The biomes surface rules may meet in this chunk: they turn every rule about other biomes into a constant instead
+     * of looking up the biome for each block, which made up half the time of a chunk. Vanilla also counts the
+     * neighbouring chunks, whose biomes blend in along the edge; for a single chunk they are left out, as computing
+     * them costs more than it saves. Near a biome border a strip of a few blocks may then get the other biome's top
+     * block (grass instead of sand), which does not show in distant LODs.
+     */
+    private static Set<Holder<Biome>> possibleBiomes(ProtoChunk chunk) {
+        Set<Holder<Biome>> biomes = new HashSet<>();
+        addBiomes(chunk, biomes);
+        return biomes;
+    }
+
+    /** Like vanilla: the biomes of the chunk and the 8 around it, which all have their biomes in {@code chunks} */
+    private static Set<Holder<Biome>> possibleBiomes(Long2ObjectOpenHashMap<ProtoChunk> chunks, int x, int z) {
+        Set<Holder<Biome>> biomes = new HashSet<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                addBiomes(chunks.get(LodGenerator.pack(x + dx, z + dz)), biomes);
+            }
+        }
+        return biomes;
+    }
+
+    private static void addBiomes(ProtoChunk chunk, Set<Holder<Biome>> biomes) {
+        for (LevelChunkSection section : chunk.getSections()) {
+            section.getBiomes().forEachInPalette(biomes::add);
+        }
     }
 
     /**
