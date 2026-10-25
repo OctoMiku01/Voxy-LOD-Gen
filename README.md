@@ -25,7 +25,9 @@ What the LODs contain:
 - **Light** spread like vanilla's: shadows under trees and overhangs, dark caves, light around lava and glowstone
 
 Trees that overlap differ in places from the real world: which one grows depends on the order chunks are
-generated in, which is different every time even in vanilla.
+generated in, which is different every time even in vanilla. LODs with only terrain (beyond `featureRadius`) may
+show the neighbouring biome's top block in a strip of a few blocks along biome borders, e.g. grass where the real
+world has sand; this keeps their generation fast.
 
 Chunks that already exist in the world (explored, with everyone's builds) are never generated: their LODs are read
 straight from the save, without loading them, and sent again whenever they are saved with changes. Players see what
