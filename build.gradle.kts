@@ -24,7 +24,6 @@ tasks.withType<JavaCompile>().configureEach {
 
 repositories {
     maven("https://maven.terraformersmc.com/releases") { content { includeGroup("com.terraformersmc") } }
-    maven("https://maven.shedaniel.me") { content { includeGroup("me.shedaniel.cloth") } }
     maven("https://api.modrinth.com/maven") { content { includeGroup("maven.modrinth") } }
 }
 
@@ -33,9 +32,8 @@ dependencies {
     implementation("net.fabricmc:fabric-loader:${property("loader_version")}")
     implementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_api_version")}")
     compileOnly("maven.modrinth:voxy:${property("voxy_version")}") { isTransitive = false }
-    // Optional: the settings screen shows up in Mod Menu when both are installed
+    // Optional: the settings screen shows up in Mod Menu when it is installed
     compileOnly("com.terraformersmc:modmenu:${property("modmenu_version")}") { isTransitive = false }
-    compileOnly("me.shedaniel.cloth:cloth-config-fabric:${property("cloth_config_version")}") { isTransitive = false }
 }
 
 tasks.processResources {

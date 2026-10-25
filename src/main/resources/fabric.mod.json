@@ -40,7 +40,6 @@
 		"voxy": "*"
 	},
 	"suggests": {
-		"modmenu": "*",
-		"cloth-config": "*"
+		"modmenu": "*"
 	}
 }

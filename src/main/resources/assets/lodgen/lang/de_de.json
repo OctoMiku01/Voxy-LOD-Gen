@@ -3,7 +3,7 @@
   "config.lodgen.category.generation": "Generierung",
   "config.lodgen.category.performance": "Leistung",
   "config.lodgen.category.multiplayer": "Mehrspieler",
-  "config.lodgen.where": "Diese Einstellungen gelten für Welten, die du spielst oder hostest. Auf einem dedizierten Server zählt dessen config/lodgen.json. Eine laufende Welt übernimmt sie beim Speichern sofort.",
+  "config.lodgen.where": "Diese Einstellungen gelten für Welten, die du spielst oder hostest. Auf einem dedizierten Server zählt dessen config/lodgen.json. Eine laufende Welt übernimmt sie, sobald du diesen Bildschirm verlässt.",
   "config.lodgen.enabled": "LODs erzeugen",
   "config.lodgen.enabled.tooltip": "Schaltet die Generierung ganz ab",
   "config.lodgen.radius": "Reichweite",
