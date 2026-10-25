@@ -75,8 +75,9 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
 | `sendSavedChunks` | true | Explored chunks become LODs too, read from the save, and are sent again when they change |
-| `threads` | a quarter of the cores | Worker threads while playing |
-| `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused |
+| `performance` | `BALANCED` | How much of the CPU generation may use: `VERY_LOW` (1 thread), `LOW` (an eighth of the cores), `BALANCED` (a quarter), `FAST` (half), `FULL` (all but one) or `CUSTOM`; while the single player game is paused at least `FAST` |
+| `threads` | a quarter of the cores | Worker threads while playing, with `CUSTOM` |
+| `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused, with `CUSTOM` |
 | `keepUnderground` | false | Also send what lies deep underground where no daylight reaches (only visible from inside caves) |
 | `tileSize` | 16 | Chunks with features are generated in tiles of this size |
 | `viewDistanceMargin` | 0 | Chunks this close beyond the view distance are left to the game |

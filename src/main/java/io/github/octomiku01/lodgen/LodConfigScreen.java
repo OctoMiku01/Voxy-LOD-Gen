@@ -64,6 +64,10 @@ public final class LodConfigScreen {
                 .setSaveConsumer(value -> config.viewDistanceMargin = value).build());
 
         ConfigCategory performance = builder.getOrCreateCategory(Component.translatable("config.lodgen.category.performance"));
+        performance.addEntry(entries.startEnumSelector(name("performance"), LodPerformance.class, config.performance)
+                .setDefaultValue(defaults.performance).setTooltip(tooltip("performance"))
+                .setEnumNameProvider(level -> performanceName((LodPerformance) level))
+                .setSaveConsumer(value -> config.performance = value).build());
         performance.addEntry(entries.startIntSlider(name("threads"), Math.min(config.threads, CORES), 1, CORES)
                 .setDefaultValue(defaults.threads).setTooltip(tooltip("threads"))
                 .setSaveConsumer(value -> config.threads = value).build());
@@ -97,6 +101,14 @@ public final class LodConfigScreen {
                 .setTextGetter(value -> Component.translatable("config.lodgen.seconds", value))
                 .setSaveConsumer(value -> config.updateMessageDelay = value).build());
         return builder.build();
+    }
+
+    /** The level with the threads it gives on this machine, e.g. "Balanced (4 threads)" */
+    static Component performanceName(LodPerformance level) {
+        if (level == LodPerformance.CUSTOM) {
+            return Component.translatable(level.key());
+        }
+        return Component.translatable("config.lodgen.performance.withThreads", Component.translatable(level.key()), level.threads());
     }
 
     private static Component name(String option) {

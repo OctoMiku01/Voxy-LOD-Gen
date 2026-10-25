@@ -422,7 +422,7 @@ final class LodGenerator {
         this.benchmark = benchmark;
         this.localVoxy = !server.isDedicatedServer() && FabricLoader.getInstance().isModLoaded("voxy");
         AtomicInteger threadNumber = new AtomicInteger();
-        this.workers = new ThreadPoolExecutor(config.threads, config.threads, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), runnable -> {
+        this.workers = new ThreadPoolExecutor(config.workerThreads(), config.workerThreads(), 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), runnable -> {
             Thread thread = new LodWorkerThread(runnable, "LodGen-Worker-" + threadNumber.incrementAndGet());
             thread.setPriority(Thread.MIN_PRIORITY);
             return thread;
@@ -430,7 +430,7 @@ final class LodGenerator {
         this.scheduler = new Thread(this::schedulerLoop, "LodGen-Scheduler");
         this.scheduler.setDaemon(true);
         this.scheduler.start();
-        LodGen.LOGGER.info("Generating LODs up to {} chunks away with {} threads", config.radius, config.threads);
+        LodGen.LOGGER.info("Generating LODs up to {} chunks away with {} threads ({})", config.radius, config.workerThreads(), config.performance);
     }
 
     static long pack(int x, int z) {
@@ -760,7 +760,7 @@ final class LodGenerator {
 
     // While the game is paused it needs no CPU time, so more workers can run
     private int threads() {
-        return this.server.isPaused() ? Math.max(this.config.threads, this.config.threadsWhilePaused) : this.config.threads;
+        return this.server.isPaused() ? this.config.workerThreadsWhilePaused() : this.config.workerThreads();
     }
 
     private void adjustThreads() {

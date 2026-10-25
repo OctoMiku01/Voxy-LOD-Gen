@@ -2,6 +2,8 @@ package io.github.octomiku01.lodgen;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,10 +17,12 @@ final class LodConfig {
     boolean enabled = true;
     /** How far from the player LODs are generated, in chunks */
     int radius = 256;
-    /** Worker threads; the default leaves room for the game, rendering and Voxy itself */
-    int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 4);
-    /** Worker threads while the game is paused (single player menu): it needs no CPU time then */
-    int threadsWhilePaused = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+    /** How much of the CPU generation may use; CUSTOM uses the two thread counts below */
+    LodPerformance performance = LodPerformance.BALANCED;
+    /** Worker threads with the CUSTOM performance; the default leaves room for the game, rendering and Voxy itself */
+    int threads = LodPerformance.BALANCED.threads();
+    /** Worker threads with the CUSTOM performance while the game is paused (single player menu): it needs no CPU time then */
+    int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
@@ -55,9 +59,15 @@ final class LodConfig {
         LodConfig config = new LodConfig();
         try {
             if (Files.exists(FILE)) {
-                LodConfig read = GSON.fromJson(Files.readString(FILE, StandardCharsets.UTF_8), LodConfig.class);
+                JsonElement json = JsonParser.parseString(Files.readString(FILE, StandardCharsets.UTF_8));
+                LodConfig read = GSON.fromJson(json, LodConfig.class);
                 if (read != null) {
                     config = read;
+                    // Files from before the performance levels: thread counts someone changed stay as CUSTOM
+                    if (json.isJsonObject() && !json.getAsJsonObject().has("performance")
+                            && (read.threads != LodPerformance.BALANCED.threads() || read.threadsWhilePaused != LodPerformance.BALANCED.threadsWhilePaused())) {
+                        config.performance = LodPerformance.CUSTOM;
+                    }
                 }
             }
         } catch (IOException | RuntimeException e) {
@@ -78,7 +88,20 @@ final class LodConfig {
         }
     }
 
+    /** Worker threads while playing */
+    int workerThreads() {
+        return this.performance == LodPerformance.CUSTOM ? this.threads : this.performance.threads();
+    }
+
+    /** Worker threads while the single player game is paused */
+    int workerThreadsWhilePaused() {
+        return this.performance == LodPerformance.CUSTOM ? Math.max(this.threads, this.threadsWhilePaused) : this.performance.threadsWhilePaused();
+    }
+
     private void clamp() {
+        if (this.performance == null) {
+            this.performance = LodPerformance.BALANCED;
+        }
         this.radius = Math.max(1, this.radius);
         this.threads = Math.max(1, this.threads);
         this.threadsWhilePaused = Math.max(1, this.threadsWhilePaused);
