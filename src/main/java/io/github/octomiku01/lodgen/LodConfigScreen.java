@@ -52,7 +52,6 @@ public final class LodConfigScreen extends OptionsSubScreen {
             this.config.maxChunksPerSecondPerPlayer, 1, 1000, null);
 
     private final OptionInstance<Boolean> checkForUpdates = this.toggle("checkForUpdates", this.config.checkForUpdates);
-    private final OptionInstance<Boolean> autoUpdate = this.toggle("autoUpdate", this.config.autoUpdate);
     private final OptionInstance<Integer> updateMessageDelay = this.slider("updateMessageDelay", this.config.updateMessageDelay, 0, 60,
             value -> Component.translatable("config.lodgen.seconds", value));
 
@@ -83,8 +82,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.list.addBig(this.maxChunksPerSecondPerPlayer);
 
         this.list.addHeader(Component.translatable("config.lodgen.category.updates"));
-        this.list.addSmall(this.checkForUpdates, this.autoUpdate);
-        this.list.addBig(this.updateMessageDelay);
+        this.list.addSmall(this.checkForUpdates, this.updateMessageDelay);
         this.updateCustomThreads();
     }
 
@@ -122,7 +120,6 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.config.farPlayers = this.farPlayers.get();
         this.config.maxChunksPerSecondPerPlayer = this.maxChunksPerSecondPerPlayer.get();
         this.config.checkForUpdates = this.checkForUpdates.get();
-        this.config.autoUpdate = this.autoUpdate.get();
         this.config.updateMessageDelay = this.updateMessageDelay.get();
         this.config.save();
         MinecraftServer server = Minecraft.getInstance().getSingleplayerServer();

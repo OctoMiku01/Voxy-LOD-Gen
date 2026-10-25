@@ -53,8 +53,6 @@ final class LodConfig {
     int maxChunksPerSecondPerPlayer = 20;
     /** Ask GitHub at each start whether a newer version exists */
     boolean checkForUpdates = true;
-    /** Download a newer version by itself and swap it in when the game quits */
-    boolean autoUpdate = false;
     /** Seconds after joining a world before the update message shows, so it comes after the messages of joining */
     int updateMessageDelay = 10;
 
