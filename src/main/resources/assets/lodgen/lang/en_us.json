@@ -4,6 +4,8 @@
   "config.lodgen.category.performance": "Performance",
   "config.lodgen.category.multiplayer": "Multiplayer",
   "config.lodgen.where": "These settings apply to worlds you play or host. On a dedicated server, the server's config/lodgen.json counts. A running world uses them as soon as you leave this screen.",
+  "config.lodgen.reset": "Reset tab",
+  "config.lodgen.reset.tooltip": "Puts the settings of this tab back to their defaults",
   "config.lodgen.enabled": "Generate LODs",
   "config.lodgen.enabled.tooltip": "Turns the generation off completely",
   "config.lodgen.radius": "Radius",

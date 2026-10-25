@@ -8,18 +8,20 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.OptionInstance;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.StringWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.MultiLineTextWidget;
 import net.minecraft.client.gui.components.OptionsList;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.tabs.GridLayoutTab;
 import net.minecraft.client.gui.components.tabs.MenuTabBar;
 import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
+import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.options.OptionsSubScreen;
+import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.FormattedText;
-import net.minecraft.network.chat.Style;
 import net.minecraft.server.MinecraftServer;
 import org.jetbrains.annotations.Nullable;
 
@@ -119,11 +121,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
     protected void addOptions() {
         switch (this.tab) {
             case 0 -> {
-                // A row of the list holds one line of text
-                for (FormattedText line : this.font.getSplitter().splitLines(Component.translatable("config.lodgen.where"),
-                        this.list.getRowWidth(), Style.EMPTY)) {
-                    this.list.addBig(new StringWidget(Component.literal(line.getString()), this.font));
-                }
+                ((TabList) this.list).addText(Component.translatable("config.lodgen.where"));
                 this.list.addSmall(this.enabled, this.terrainFirst);
                 this.list.addSmall(this.radius, this.featureRadius);
                 this.list.addSmall(this.mapRadius, this.viewDistanceMargin);
@@ -148,14 +146,73 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.updateCustomThreads();
     }
 
+    // Reset and Done side by side, instead of Done alone
+    @Override
+    protected void addFooter() {
+        LinearLayout footer = this.layout.addToFooter(LinearLayout.horizontal().spacing(8));
+        footer.addChild(Button.builder(Component.translatable("config.lodgen.reset"), button -> this.resetTab())
+                .tooltip(Tooltip.create(Component.translatable("config.lodgen.reset.tooltip"))).width(150).build());
+        footer.addChild(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose()).width(150).build());
+    }
+
+    /** Puts the options of the open tab back to their defaults; like every change, it is saved when leaving */
+    private void resetTab() {
+        LodConfig defaults = new LodConfig();
+        switch (this.tab) {
+            case 0 -> {
+                this.enabled.set(defaults.enabled);
+                this.terrainFirst.set(defaults.terrainFirst);
+                this.radius.set(defaults.radius);
+                this.featureRadius.set(defaults.featureRadius);
+                this.mapRadius.set(defaults.mapRadius);
+                this.viewDistanceMargin.set(defaults.viewDistanceMargin);
+                this.structures.set(defaults.structures);
+                this.sendSavedChunks.set(defaults.sendSavedChunks);
+                this.keepUnderground.set(defaults.keepUnderground);
+            }
+            case 1 -> {
+                this.performance.set(defaults.performance);
+                this.threads.set(Math.min(defaults.threads, LodPerformance.CORES));
+                this.threadsWhilePaused.set(Math.min(defaults.threadsWhilePaused, LodPerformance.CORES));
+                this.tickTimeLimit.set(defaults.tickTimeLimit);
+                this.tileSize.set(defaults.tileSize);
+            }
+            case 2 -> {
+                this.sendToPlayers.set(defaults.sendToPlayers);
+                this.farPlayers.set(defaults.farPlayers);
+                this.maxChunksPerSecondPerPlayer.set(defaults.maxChunksPerSecondPerPlayer);
+            }
+            default -> {
+                this.checkForUpdates.set(defaults.checkForUpdates);
+                this.updateMessageDelay.set(defaults.updateMessageDelay);
+            }
+        }
+        // The buttons show the values they were made with
+        if (this.list instanceof TabList list) {
+            double scroll = list.scrollAmount();
+            list.clear();
+            this.addOptions();
+            list.setScrollAmount(scroll);
+        }
+    }
+
     /** The list of the options screen, emptied when another tab is chosen */
     private static final class TabList extends OptionsList {
+        private final LodConfigScreen screen;
+
         TabList(LodConfigScreen screen) {
             super(Minecraft.getInstance(), screen.width, screen);
+            this.screen = screen;
         }
 
         void clear() {
             this.clearEntries();
+        }
+
+        /** A paragraph in one entry as tall as its lines, instead of a row per line */
+        void addText(Component text) {
+            MultiLineTextWidget widget = new MultiLineTextWidget(text, this.screen.getFont()).setMaxWidth(this.getRowWidth());
+            this.addEntry(Entry.big(widget, this.screen), widget.getHeight() + 6);
         }
     }
 
