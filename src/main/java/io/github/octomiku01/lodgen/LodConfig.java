@@ -25,7 +25,7 @@ final class LodConfig {
     int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
     /** While the server's ticks take longer than this (milliseconds, 50 is the budget of a tick), only one worker
      *  runs; 0 turns this off */
-    int tickTimeLimit = 40;
+    int tickTimeLimit = 55;
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */

@@ -79,7 +79,7 @@ created on first start:
 | `performance` | `BALANCED` | How much of the CPU generation may use: `VERY_LOW` (1 thread), `LOW` (an eighth of the cores), `BALANCED` (a quarter), `FAST` (half), `FULL` (all but two) or `CUSTOM`; while the single player game is paused at least `FAST` |
 | `threads` | a quarter of the cores | Worker threads while playing, with `CUSTOM` |
 | `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused, with `CUSTOM` |
-| `tickTimeLimit` | 40 | While the server's ticks take longer than this many milliseconds on average, only one thread generates; 0 turns it off |
+| `tickTimeLimit` | 55 | While the server's ticks take longer than this many milliseconds on average, only one thread generates; 0 turns it off |
 | `keepUnderground` | false | Also send what lies deep underground where no daylight reaches (only visible from inside caves) |
 | `tileSize` | 16 | Chunks with features are generated in tiles of this size |
 | `viewDistanceMargin` | 0 | Chunks this close beyond the view distance are left to the game |
