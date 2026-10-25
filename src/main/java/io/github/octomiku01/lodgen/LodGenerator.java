@@ -510,6 +510,10 @@ final class LodGenerator {
         }
     }
 
+    boolean isPaused() {
+        return this.paused;
+    }
+
     void setPaused(boolean paused) {
         this.paused = paused;
     }

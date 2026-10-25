@@ -95,6 +95,9 @@ as you save. Otherwise edit `config/lodgen.json`, created on first start:
 - `/lodgen pause` / `/lodgen resume`
 - `/lodgen reset` sends your LODs of the current dimension again, e.g. after deleting Voxy's data or updating this mod
 - `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
+- `/lodgen bench [radius]` (operators only) measures how fast this computer builds LODs with features around you, with
+  the threads of the performance setting; the generation pauses meanwhile. Handy for choosing a performance level and
+  for bug reports
 
 Progress is stored per player and dimension in `<world>/lodgen/players/`.
 
