@@ -76,7 +76,7 @@ created on first start:
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
 | `sendSavedChunks` | true | Explored chunks become LODs too, read from the save, and are sent again when they change |
-| `performance` | `BALANCED` | How much of the CPU generation may use: `VERY_LOW` (1 thread), `LOW` (an eighth of the cores), `BALANCED` (a quarter), `FAST` (half), `FULL` (all but one) or `CUSTOM`; while the single player game is paused at least `FAST` |
+| `performance` | `BALANCED` | How much of the CPU generation may use: `VERY_LOW` (1 thread), `LOW` (an eighth of the cores), `BALANCED` (a quarter), `FAST` (half), `FULL` (all but two) or `CUSTOM`; while the single player game is paused at least `FAST` |
 | `threads` | a quarter of the cores | Worker threads while playing, with `CUSTOM` |
 | `threadsWhilePaused` | half of the cores | Worker threads while the single player game is paused, with `CUSTOM` |
 | `tickTimeLimit` | 40 | While the server's ticks take longer than this many milliseconds on average, only one thread generates; 0 turns it off |

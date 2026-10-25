@@ -9,7 +9,7 @@ enum LodPerformance {
     LOW,
     BALANCED,
     FAST,
-    /** All but one core, which stays free for the server thread */
+    /** All but two cores, which stay free for the game (server thread and rendering) */
     FULL,
     /** The threads and threadsWhilePaused settings */
     CUSTOM;
@@ -23,7 +23,7 @@ enum LodPerformance {
             case LOW -> Math.max(1, CORES / 8);
             case BALANCED, CUSTOM -> Math.max(1, CORES / 4);
             case FAST -> Math.max(1, CORES / 2);
-            case FULL -> Math.max(1, CORES - 1);
+            case FULL -> Math.max(1, CORES - 2);
         };
     }
 
