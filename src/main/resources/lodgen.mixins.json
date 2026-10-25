@@ -11,6 +11,8 @@
 		"SynchedEntityDataAccessor"
 	],
 	"client": [
+		"DebugScreenEntriesInvoker",
+		"DebugScreenEntryListAccessor",
 		"map.CameraMixin",
 		"map.ClientClockManagerMixin",
 		"map.CloudsAndWeatherMixin",

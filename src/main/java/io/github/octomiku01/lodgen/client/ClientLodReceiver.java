@@ -18,6 +18,8 @@ final class ClientLodReceiver {
     private static final int RETRIES_PER_TICK = 64;
 
     private static final ArrayDeque<LodChunkPayload> PENDING = new ArrayDeque<>();
+    /** Handed to Voxy since joining, for the F3 screen */
+    private static int received;
 
     private ClientLodReceiver() {
     }
@@ -42,6 +44,15 @@ final class ClientLodReceiver {
 
     static void clear() {
         PENDING.clear();
+        received = 0;
+    }
+
+    static int received() {
+        return received;
+    }
+
+    static int pending() {
+        return PENDING.size();
     }
 
     /**
@@ -65,6 +76,9 @@ final class ClientLodReceiver {
                 accepted[0] = false;
             }
         });
+        if (accepted[0]) {
+            received++;
+        }
         return accepted[0];
     }
 }
