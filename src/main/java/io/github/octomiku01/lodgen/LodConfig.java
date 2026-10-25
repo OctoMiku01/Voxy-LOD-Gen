@@ -23,6 +23,9 @@ final class LodConfig {
     int threads = LodPerformance.BALANCED.threads();
     /** Worker threads with the CUSTOM performance while the game is paused (single player menu): it needs no CPU time then */
     int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
+    /** While the server's ticks take longer than this (milliseconds, 50 is the budget of a tick), only one worker
+     *  runs; 0 turns this off */
+    int tickTimeLimit = 40;
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
@@ -103,6 +106,7 @@ final class LodConfig {
             this.performance = LodPerformance.BALANCED;
         }
         this.radius = Math.max(1, this.radius);
+        this.tickTimeLimit = Math.max(0, this.tickTimeLimit);
         this.threads = Math.max(1, this.threads);
         this.threadsWhilePaused = Math.max(1, this.threadsWhilePaused);
         this.viewDistanceMargin = Math.max(0, this.viewDistanceMargin);
