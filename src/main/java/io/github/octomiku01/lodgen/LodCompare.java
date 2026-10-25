@@ -42,10 +42,6 @@ final class LodCompare {
         MinecraftServer server = source.getServer();
         ServerLevel level = (ServerLevel) player.level();
         LodChunkBuilder builder = LodChunkBuilder.create(level, true, true);
-        if (builder == null) {
-            reply(source, LodChat.error("This dimension is not supported"));
-            return;
-        }
         ChunkPos center = player.chunkPosition();
         int minX = center.x() - SIZE / 2;
         int minZ = center.z() - SIZE / 2;

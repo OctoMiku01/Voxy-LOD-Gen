@@ -28,6 +28,7 @@ import net.minecraft.world.level.biome.BiomeGenerationSettings;
 import net.minecraft.world.level.biome.BiomeManager;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.ProtoChunk;
@@ -58,7 +59,7 @@ final class LodChunkBuilder {
     private static final ChunkStep FEATURES_STEP = ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FEATURES);
 
     private final ServerLevel level;
-    private final NoiseBasedChunkGenerator generator;
+    private final ChunkGenerator generator;
     private final BiomeSource biomeSource;
     private final RandomState randomState;
     private final StructureManager structures;
@@ -77,7 +78,7 @@ final class LodChunkBuilder {
         }
     });
 
-    private LodChunkBuilder(ServerLevel level, NoiseBasedChunkGenerator generator, boolean structures, boolean keepUnderground) {
+    private LodChunkBuilder(ServerLevel level, ChunkGenerator generator, boolean structures, boolean keepUnderground) {
         this.level = level;
         this.generator = generator;
         this.biomeSource = generator.getBiomeSource();
@@ -90,15 +91,24 @@ final class LodChunkBuilder {
     }
 
     /**
+     * Any generator: the vanilla noise based one (also used by most worldgen mods), superflat, or one of a mod. A mod's
+     * own generator may expect the real chunk system and fail here, see {@link #noiseBased()}.
+     *
      * @param structures whether LODs include structures (villages, towers...); they also shape the terrain around them
      * @param keepUnderground also keep the sections deep underground that no daylight reaches
-     * @return null if this dimension cannot be generated (not a noise based generator, e.g. superflat)
      */
-    static @Nullable LodChunkBuilder create(ServerLevel level, boolean structures, boolean keepUnderground) {
-        if (!(level.getChunkSource().getGenerator() instanceof NoiseBasedChunkGenerator generator)) {
-            return null;
-        }
-        return new LodChunkBuilder(level, generator, structures, keepUnderground);
+    static LodChunkBuilder create(ServerLevel level, boolean structures, boolean keepUnderground) {
+        return new LodChunkBuilder(level, level.getChunkSource().getGenerator(), structures, keepUnderground);
+    }
+
+    /** The vanilla noise based generator, known to work; others are tried and given up if they only fail */
+    boolean noiseBased() {
+        return this.generator instanceof NoiseBasedChunkGenerator;
+    }
+
+    /** Its name for the log, e.g. minecraft:flat */
+    String generatorName() {
+        return this.generator.getTypeNameForDataFixer().map(Object::toString).orElse(this.generator.getClass().getName());
     }
 
     /**

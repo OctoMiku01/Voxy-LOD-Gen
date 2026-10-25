@@ -17,7 +17,8 @@ Nothing is loaded, ticked or written to the region files.
 What the LODs contain:
 
 - **Terrain** of the dimension's generator, including worldgen mods (tested with Tectonic, Terralith, Biomes O'
-  Plenty, Streams Reflowing, Incendium and Nullscape), in the Overworld, the Nether and the End
+  Plenty, Streams Reflowing, Incendium and Nullscape), in the Overworld, the Nether and the End. Superflat works
+  too; a mod's own generator is tried, and given up for that dimension if it only fails outside the chunk system
 - **Caves and ravines**, so their openings show from afar
 - **Features** up to `featureRadius` chunks away: trees, plants, lakes...
 - **Structures** within the same distance: villages, towers, ruins..., including those of structure mods; the terrain

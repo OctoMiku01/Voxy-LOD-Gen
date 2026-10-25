@@ -32,10 +32,6 @@ final class LodBench {
         MinecraftServer server = source.getServer();
         ServerLevel level = source.getLevel();
         LodChunkBuilder builder = LodChunkBuilder.create(level, config.structures, config.keepUnderground);
-        if (builder == null) {
-            reply(source, LodChat.error("This dimension is not supported"));
-            return;
-        }
         if (!RUNNING.compareAndSet(false, true)) {
             reply(source, LodChat.warning("A benchmark is already running"));
             return;

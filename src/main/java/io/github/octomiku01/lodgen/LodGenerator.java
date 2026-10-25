@@ -63,6 +63,8 @@ final class LodGenerator {
     /** Moving this many chunks restarts the search at the player, so nearby gaps are filled first */
     private static final int RESCAN_DISTANCE = 8;
     private static final int MAX_LOGGED_ERRORS = 10;
+    /** A generator other than the noise based one that fails this often before it ever worked is given up */
+    private static final int MAX_FAILURES_OF_UNKNOWN_GENERATOR = 8;
     /** Players without a profile, e.g. the benchmark, share this id */
     private static final UUID NO_PLAYER = new UUID(0, 0);
     /** The most the 3D map may ask for around where it looks, in chunks */
@@ -361,7 +363,11 @@ final class LodGenerator {
 
     private final class Dimension {
         final ServerLevel level;
-        final @Nullable LodChunkBuilder builder;
+        /** Null once given up: the dimension's generator only failed, see build */
+        volatile @Nullable LodChunkBuilder builder;
+        /** Builds failed before any worked; only counted for generators other than the noise based one */
+        final AtomicInteger failedBeforeWorking = new AtomicInteger();
+        volatile boolean worked;
         final SavedChunks saved; // scheduler thread only
         final Map<Long, Task> queued = new ConcurrentHashMap<>(); // terrain only, by chunk
         final Map<Long, Task> tiles = new ConcurrentHashMap<>(); // with features, by tile
@@ -374,8 +380,9 @@ final class LodGenerator {
             this.builder = LodChunkBuilder.create(level, LodGenerator.this.config.structures, LodGenerator.this.config.keepUnderground);
             Path worldRoot = LodGenerator.this.server.getWorldPath(LevelResource.ROOT);
             this.saved = new SavedChunks(DimensionType.getStorageFolder(level.dimension(), worldRoot).resolve("region"));
-            if (this.builder == null) {
-                LodGen.LOGGER.info("{}: no LODs, the dimension is not supported", level.dimension().identifier());
+            if (!this.builder.noiseBased()) {
+                LodGen.LOGGER.info("{}: trying generator {}, not the usual noise based one", level.dimension().identifier(),
+                        this.builder.generatorName());
             }
         }
 
@@ -1046,14 +1053,18 @@ final class LodGenerator {
                 return;
             }
             List<LodChunk> chunks = null;
+            LodChunkBuilder builder = dimension.builder;
             try {
-                if (task.savedAt != 0) {
-                    LodChunk chunk = dimension.builder.fromSaved(new ChunkPos(task.minX, task.minZ));
+                if (builder == null) {
+                    // Given up on this dimension while the task waited
+                } else if (task.savedAt != 0) {
+                    LodChunk chunk = builder.fromSaved(new ChunkPos(task.minX, task.minZ));
                     chunks = chunk == null ? null : List.of(chunk);
                 } else {
                     chunks = task.features
-                            ? dimension.builder.buildTile(task.minX, task.minZ, task.size, () -> !this.running)
-                            : List.of(dimension.builder.build(new ChunkPos(task.minX, task.minZ)));
+                            ? builder.buildTile(task.minX, task.minZ, task.size, () -> !this.running)
+                            : List.of(builder.build(new ChunkPos(task.minX, task.minZ)));
+                    dimension.worked = true;
                 }
                 if (chunks != null) {
                     this.generated.addAndGet(chunks.size());
@@ -1066,6 +1077,12 @@ final class LodGenerator {
                 }
                 if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
                     LodGen.LOGGER.error("Could not build the LOD for chunk {}, {}", task.minX, task.minZ, t);
+                }
+                if (task.savedAt == 0 && !builder.noiseBased() && !dimension.worked
+                        && dimension.failedBeforeWorking.incrementAndGet() == MAX_FAILURES_OF_UNKNOWN_GENERATOR) {
+                    dimension.builder = null;
+                    LodGen.LOGGER.warn("{}: no LODs, its generator {} does not work outside the chunk system",
+                            dimension.level.dimension().identifier(), builder.generatorName());
                 }
             }
             (task.savedAt != 0 ? dimension.real : task.features ? dimension.tiles : dimension.queued).remove(taskKey);
