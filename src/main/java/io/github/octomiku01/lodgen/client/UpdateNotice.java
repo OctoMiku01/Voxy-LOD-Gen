@@ -40,7 +40,7 @@ final class UpdateNotice {
                 .map(mod -> mod.getMetadata().getVersion().getFriendlyString().split("\\+", 2)[0]).orElse("?");
         Component link = Component.translatable("lodgen.update.open").withStyle(style -> style
                 .withColor(ChatFormatting.AQUA).withUnderlined(true).withClickEvent(new ClickEvent.OpenUrl(URI.create(update.page()))));
-        Component message = Component.translatable(update.downloaded() ? "lodgen.update.downloaded" : "lodgen.update.available",
+        Component message = Component.translatable("lodgen.update.available",
                 update.version(), installed).append(" ").append(link);
         client.gui.hud.getChat().addClientSystemMessage(message);
     }
