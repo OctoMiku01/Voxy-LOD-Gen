@@ -410,6 +410,8 @@ final class LodGenerator {
     private final Map<UUID, MapFocus> mapFocus = new ConcurrentHashMap<>();
     private volatile boolean running = true;
     private volatile boolean paused;
+    /** The server's ticks take longer than tickTimeLimit: only one worker runs until they are fast again */
+    private volatile boolean throttled;
     private volatile double rate;
     private int turn; // scheduler thread only
 
@@ -524,7 +526,7 @@ final class LodGenerator {
 
     String status(@Nullable ServerPlayer asking) {
         List<Viewer> current = this.viewers;
-        StringBuilder text = new StringBuilder(this.paused ? "[paused] " : "");
+        StringBuilder text = new StringBuilder(this.paused ? "[paused] " : this.throttled ? "[throttled, the server is busy] " : "");
         text.append(String.format("%.1f chunks/s, %d in progress, %d threads, %d player(s), %d sent over the network",
                 this.rate, this.inFlight.get(), this.threads(), current.size(), this.sent.get()));
         text.append(String.format("; built since the start: %d (%d terrain only, %d with features, %d from the save)",
@@ -558,6 +560,9 @@ final class LodGenerator {
         MutableComponent text = LodChat.tag().append(Component.literal("Status").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD));
         if (this.paused) {
             text.append(Component.literal("  paused").withStyle(ChatFormatting.YELLOW));
+        } else if (this.throttled) {
+            text.append(Component.literal(String.format("  slowed down: ticks take %.0f ms", this.server.getAverageTickTimeNanos() / 1e6))
+                    .withStyle(ChatFormatting.YELLOW));
         }
         text.append(LodChat.newLine()).append(LodChat.label("Speed  "))
                 .append(LodChat.value(String.format("%.1f", this.rate))).append(LodChat.label(" chunks/s"))
@@ -659,6 +664,7 @@ final class LodGenerator {
         while (this.running) {
             try {
                 boolean full = false;
+                this.updateThrottle();
                 this.adjustThreads();
                 if (!this.paused) {
                     full = this.fillQueue();
@@ -760,7 +766,31 @@ final class LodGenerator {
 
     // While the game is paused it needs no CPU time, so more workers can run
     private int threads() {
-        return this.server.isPaused() ? this.config.workerThreadsWhilePaused() : this.config.workerThreads();
+        if (this.server.isPaused()) {
+            return this.config.workerThreadsWhilePaused();
+        }
+        return this.throttled ? 1 : this.config.workerThreads();
+    }
+
+    /**
+     * Slows down to one worker while the server's ticks (averaged over the last 5 seconds) take longer than
+     * tickTimeLimit, and speeds up again once they are well below it, so it does not flip back and forth. A paused
+     * game does not tick.
+     */
+    private void updateThrottle() {
+        int limit = this.config.tickTimeLimit;
+        if (limit <= 0 || this.server.isPaused()) {
+            this.throttled = false;
+            return;
+        }
+        double millis = this.server.getAverageTickTimeNanos() / 1e6;
+        if (millis > limit && !this.throttled) {
+            this.throttled = true;
+            LodGen.LOGGER.info("Ticks take {} ms, more than {} ms: slowing down to one thread", Math.round(millis), limit);
+        } else if (millis < limit * 0.75 && this.throttled) {
+            this.throttled = false;
+            LodGen.LOGGER.info("Ticks take {} ms again: back to {} threads", Math.round(millis), this.config.workerThreads());
+        }
     }
 
     private void adjustThreads() {

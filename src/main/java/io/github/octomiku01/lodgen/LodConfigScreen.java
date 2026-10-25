@@ -74,6 +74,10 @@ public final class LodConfigScreen {
         performance.addEntry(entries.startIntSlider(name("threadsWhilePaused"), Math.min(config.threadsWhilePaused, CORES), 1, CORES)
                 .setDefaultValue(defaults.threadsWhilePaused).setTooltip(tooltip("threadsWhilePaused"))
                 .setSaveConsumer(value -> config.threadsWhilePaused = value).build());
+        performance.addEntry(entries.startIntSlider(name("tickTimeLimit"), Math.min(config.tickTimeLimit, 100), 0, 100)
+                .setDefaultValue(defaults.tickTimeLimit).setTooltip(tooltip("tickTimeLimit"))
+                .setTextGetter(value -> value == 0 ? Component.translatable("config.lodgen.off") : Component.translatable("config.lodgen.milliseconds", value))
+                .setSaveConsumer(value -> config.tickTimeLimit = value).build());
         performance.addEntry(entries.startIntSlider(name("tileSize"), config.tileSize, 1, 32)
                 .setDefaultValue(defaults.tileSize).setTooltip(tooltip("tileSize"))
                 .setSaveConsumer(value -> config.tileSize = value).build());
