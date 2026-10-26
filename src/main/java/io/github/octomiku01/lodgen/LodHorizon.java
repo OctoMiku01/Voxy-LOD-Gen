@@ -1,7 +1,19 @@
 package io.github.octomiku01.lodgen;
 
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,8 +32,8 @@ import org.jetbrains.annotations.Nullable;
  * just outside the radius up to horizonRadius. Rough LODs (see {@link LodHorizonBuilder}) where nothing exists yet,
  * real ones read from the save where chunks were explored; chunks the player already got are left alone, and real
  * LODs replace the rough ones whenever they come. The further a ring, the coarser its samples. Runs on threads of its
- * own, pausing with the generation. Which chunks it did is only kept while the world is open: after a restart it walks
- * again, which costs little.
+ * own, pausing with the generation, and only once the host has all real LODs around them. Which chunks it did is saved
+ * per dimension in {@code <world>/lodgen/horizon/}.
  */
 final class LodHorizon {
     /** The host moving this many chunks away starts the rings again around where they are */
@@ -31,6 +43,9 @@ final class LodHorizon {
     private static final int MAX_VOXY_BACKLOG = 10_000;
     /** Ground heights at grid corners kept for the neighbouring chunks, which share them; a few rings' worth */
     private static final int HEIGHT_CACHE = 200_000;
+    /** Raised when rough LODs are built differently: files of an older format are dropped, so all is built again */
+    private static final int FORMAT = 1;
+    private static final long SAVE_INTERVAL_MILLIS = 60_000;
 
     /** Where the host is, published by the generator */
     record Spot(ServerLevel level, int chunkX, int chunkZ) {
@@ -59,8 +74,11 @@ final class LodHorizon {
     private @Nullable String lastWaiting;
     private long lastStats = System.currentTimeMillis();
     private long builtAtLastStats;
-    /** Per dimension: chunks done since the world was opened */
+    /** Per dimension: chunks done, loaded from and saved to the world */
     private final Map<ResourceKey<Level>, LongOpenHashSet> done = new HashMap<>();
+    private final Set<ResourceKey<Level>> unsaved = new HashSet<>();
+    private final Map<ResourceKey<Level>, Path> files = new HashMap<>();
+    private long lastSave = System.currentTimeMillis();
     private final Map<ResourceKey<Level>, SavedChunks> saved = new HashMap<>();
     /** Per dimension, shared by all threads, see {@link LodHorizonBuilder} */
     private final Map<ResourceKey<Level>, ChunkCache<Integer>> heights = new HashMap<>();
@@ -96,9 +114,18 @@ final class LodHorizon {
                 thread.join(5_000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return;
+                break;
             }
         }
+        this.save();
+    }
+
+    /** Forgets what was done in this dimension, e.g. after Voxy's data was deleted: it is built again */
+    synchronized void clear(ServerLevel level) {
+        this.doneOf(level).clear();
+        this.unsaved.add(level.dimension());
+        // Start the rings again
+        this.dimension = null;
     }
 
     private void run() {
@@ -135,6 +162,7 @@ final class LodHorizon {
                 }
                 synchronized (this) {
                     job.done.add(LodGenerator.pack(job.x, job.z));
+                    this.unsaved.add(key);
                 }
                 this.built.incrementAndGet();
             }
@@ -148,6 +176,9 @@ final class LodHorizon {
     /** The next chunk to do, or null while there is none (no host, paused, slowed down, or all done) */
     private synchronized @Nullable Job next() {
         this.logStats();
+        if (System.currentTimeMillis() - this.lastSave >= SAVE_INTERVAL_MILLIS) {
+            this.save();
+        }
         @Nullable Spot spot = this.generator.hostSpot();
         String waiting = spot == null ? "no host" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down"
                 : !this.generator.hostCaughtUp() ? "real LODs first" : null;
@@ -171,7 +202,7 @@ final class LodHorizon {
         if (this.sink == null) {
             return null;
         }
-        LongOpenHashSet dimensionDone = this.done.computeIfAbsent(key, k -> new LongOpenHashSet());
+        LongOpenHashSet dimensionDone = this.doneOf(spot.level());
         while (this.ring <= this.toRing) {
             // Square ring: 8 * ring chunks, starting at its north-west corner
             int side = 2 * this.ring;
@@ -222,6 +253,62 @@ final class LodHorizon {
         }
         this.lastStats = now;
         this.builtAtLastStats = total;
+    }
+
+    private synchronized LongOpenHashSet doneOf(ServerLevel level) {
+        return this.done.computeIfAbsent(level.dimension(), key -> {
+            Path root = level.getServer().getWorldPath(LevelResource.ROOT).resolve("lodgen").resolve("horizon");
+            Path file = root.resolve(key.identifier().getNamespace()).resolve(key.identifier().getPath() + ".bin");
+            this.files.put(key, file);
+            return load(file);
+        });
+    }
+
+    private static LongOpenHashSet load(Path file) {
+        LongOpenHashSet set = new LongOpenHashSet();
+        if (!Files.exists(file)) {
+            return set;
+        }
+        try (DataInputStream in = new DataInputStream(new BufferedInputStream(new GZIPInputStream(Files.newInputStream(file))))) {
+            if (in.readInt() != FORMAT) {
+                // Built differently before: build again
+                return set;
+            }
+            int count = in.readInt();
+            for (int i = 0; i < count; i++) {
+                set.add(in.readLong());
+            }
+        } catch (IOException e) {
+            LodGen.LOGGER.warn("Could not read {}, the horizon is built again", file, e);
+            set.clear();
+        }
+        return set;
+    }
+
+    private synchronized void save() {
+        this.lastSave = System.currentTimeMillis();
+        for (ResourceKey<Level> key : this.unsaved) {
+            Path file = this.files.get(key);
+            LongOpenHashSet set = this.done.get(key);
+            if (file == null || set == null) {
+                continue;
+            }
+            try {
+                Files.createDirectories(file.getParent());
+                Path temp = file.resolveSibling(file.getFileName() + ".tmp");
+                try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(Files.newOutputStream(temp))))) {
+                    out.writeInt(FORMAT);
+                    out.writeInt(set.size());
+                    for (LongIterator it = set.iterator(); it.hasNext(); ) {
+                        out.writeLong(it.nextLong());
+                    }
+                }
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                LodGen.LOGGER.error("Could not save {}", file, e);
+            }
+        }
+        this.unsaved.clear();
     }
 
     private ChunkCache<Integer> heightsOf(ResourceKey<Level> dimension) {
