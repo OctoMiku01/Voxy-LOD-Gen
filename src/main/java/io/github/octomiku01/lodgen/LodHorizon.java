@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -56,6 +57,7 @@ final class LodHorizon {
     /** Raised when rough LODs are built differently: files of an older format are dropped, so all is built again */
     private static final int FORMAT = 1;
     private static final long SAVE_INTERVAL_MILLIS = 60_000;
+    private static final int MAX_LOGGED_ERRORS = 10;
     /** Samples sent to a player wait at most this long to go out with more */
     private static final long BATCH_MILLIS = 1_000;
     /** A real LOD read from the save is about this many times the size of a chunk's samples, for the send rate */
@@ -112,6 +114,7 @@ final class LodHorizon {
     private final List<Thread> threads = new ArrayList<>();
     private volatile boolean running = true;
     private final AtomicLong built = new AtomicLong();
+    private final AtomicInteger errors = new AtomicInteger();
 
     // Guarded by this
     private final Map<UUID, Map<ResourceKey<Level>, Watcher>> watchers = new HashMap<>();
@@ -197,30 +200,14 @@ final class LodHorizon {
                     Thread.sleep(200);
                     continue;
                 }
-                ServerLevel level = job.target.level();
-                ResourceKey<Level> key = level.dimension();
-                long chunk = LodGenerator.pack(job.x, job.z);
-                if (job.explored) {
-                    LodChunk lod = real.computeIfAbsent(key, k -> LodChunkBuilder.create(level, this.config.structures, this.config.keepUnderground))
-                            .fromSaved(new ChunkPos(job.x, job.z));
-                    if (lod != null && this.deliver(job, lod)) {
-                        this.markDone(job.watcher, chunk);
+                try {
+                    this.build(job, samplers, rough, real);
+                } catch (RuntimeException e) {
+                    // Skipped, so it is not tried again and again; the other chunks go on
+                    if (this.errors.incrementAndGet() <= MAX_LOGGED_ERRORS) {
+                        LodGen.LOGGER.error("Could not build the horizon at chunk {}, {}", job.x, job.z, e);
                     }
-                } else {
-                    HorizonStore store = this.storeOf(level);
-                    HorizonSamples samples = store.get(job.x, job.z, job.step);
-                    if (samples == null) {
-                        samples = samplers.computeIfAbsent(key, k -> new LodHorizonSampler(level, this.heightsOf(key), this.estimateOf(key))).sample(job.x, job.z, job.step);
-                        store.put(job.x, job.z, samples);
-                    }
-                    if (job.target.host()) {
-                        LodChunk lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(level)).build(job.x, job.z, samples);
-                        if (this.deliver(job, lod)) {
-                            this.markDone(job.watcher, chunk);
-                        }
-                    } else {
-                        this.addToBatch(job, chunk, samples);
-                    }
+                    this.markDone(job.watcher, LodGenerator.pack(job.x, job.z));
                 }
                 this.built.incrementAndGet();
             }
@@ -228,6 +215,35 @@ final class LodHorizon {
             // Stopped
         } catch (Throwable t) {
             LodGen.LOGGER.error("The horizon stopped", t);
+        }
+    }
+
+    private void build(Job job, Map<ResourceKey<Level>, LodHorizonSampler> samplers, Map<ResourceKey<Level>, LodHorizonBuilder> rough,
+            Map<ResourceKey<Level>, LodChunkBuilder> real) throws InterruptedException {
+        ServerLevel level = job.target.level();
+        ResourceKey<Level> key = level.dimension();
+        long chunk = LodGenerator.pack(job.x, job.z);
+        if (job.explored) {
+            LodChunk lod = real.computeIfAbsent(key, k -> LodChunkBuilder.create(level, this.config.structures, this.config.keepUnderground))
+                    .fromSaved(new ChunkPos(job.x, job.z));
+            if (lod != null && this.deliver(job, lod)) {
+                this.markDone(job.watcher, chunk);
+            }
+        } else {
+            HorizonStore store = this.storeOf(level);
+            HorizonSamples samples = store.get(job.x, job.z, job.step);
+            if (samples == null) {
+                samples = samplers.computeIfAbsent(key, k -> new LodHorizonSampler(level, this.heightsOf(key), this.estimateOf(key))).sample(job.x, job.z, job.step);
+                store.put(job.x, job.z, samples);
+            }
+            if (job.target.host()) {
+                LodChunk lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(level)).build(job.x, job.z, samples);
+                if (this.deliver(job, lod)) {
+                    this.markDone(job.watcher, chunk);
+                }
+            } else {
+                this.addToBatch(job, chunk, samples);
+            }
         }
     }
 
