@@ -23,6 +23,9 @@ final class LodConfig {
     int threads = LodPerformance.BALANCED.threads();
     /** Worker threads with the CUSTOM performance while the game is paused (single player menu): it needs no CPU time then */
     int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
+    /** Beyond the radius, up to this distance (in chunks), rough LODs show the horizon: only the height and the
+     *  biome of the ground, far cheaper than real ones. Only for the player hosting the game; 0 turns it off */
+    int horizonRadius = 0;
     /** While the server's ticks take longer than this (milliseconds, 50 is the budget of a tick), only one worker
      *  runs; 0 turns this off */
     int tickTimeLimit = 55;
@@ -105,6 +108,7 @@ final class LodConfig {
         }
         this.radius = Math.max(1, this.radius);
         this.tickTimeLimit = Math.max(0, this.tickTimeLimit);
+        this.horizonRadius = Math.clamp(this.horizonRadius, 0, 2048);
         this.threads = Math.max(1, this.threads);
         this.threadsWhilePaused = Math.max(1, this.threadsWhilePaused);
         this.viewDistanceMargin = Math.max(0, this.viewDistanceMargin);

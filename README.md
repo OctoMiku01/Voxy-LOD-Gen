@@ -72,6 +72,7 @@ created on first start:
 |---|---|---|
 | `radius` | 256 | How far LODs reach, in chunks |
 | `featureRadius` | 256 | Up to here LODs get features and structures, further away only terrain |
+| `horizonRadius` | 0 | Beyond `radius`, up to here (in chunks), rough LODs show the horizon for the player hosting the game: only the height and biome of the ground, far cheaper than real LODs, replaced by them when they come; 0 turns it off. Experimental |
 | `mapRadius` | 1024 | How far from you the 3D map may lead generation to where it looks, in chunks; 0 turns it off |
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |

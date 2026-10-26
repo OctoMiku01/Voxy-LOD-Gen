@@ -402,6 +402,8 @@ final class LodGenerator {
     private final boolean localVoxy;
     private final ThreadPoolExecutor workers;
     private final Thread scheduler;
+    /** Rough LODs beyond the radius for the host, if horizonRadius asks for them */
+    private final @Nullable LodHorizon horizon;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
     private final AtomicInteger inFlight = new AtomicInteger();
@@ -441,6 +443,33 @@ final class LodGenerator {
         this.scheduler.setDaemon(true);
         this.scheduler.start();
         LodGen.LOGGER.info("Generating LODs up to {} chunks away with {} threads ({})", config.radius, config.workerThreads(), config.performance);
+        this.horizon = this.localVoxy && !benchmark && config.horizonRadius > config.radius
+                ? new LodHorizon(this, config) : null;
+    }
+
+    /** Where the player hosting this game is, for the horizon; null without one */
+    LodHorizon.@Nullable Spot hostSpot() {
+        for (Viewer viewer : this.viewers) {
+            if (viewer.host) {
+                return new LodHorizon.Spot(viewer.level, viewer.chunkX, viewer.chunkZ);
+            }
+        }
+        return null;
+    }
+
+    /** Whether the host already got a real LOD of this chunk (generated or read from the save) */
+    boolean hostHas(ServerLevel level, long key) {
+        for (Viewer viewer : this.viewers) {
+            if (viewer.host && viewer.level == level) {
+                Progress progress = this.progressOf(viewer);
+                return progress.isDone(key, false) || progress.hasSaved(key, 1);
+            }
+        }
+        return false;
+    }
+
+    boolean isThrottled() {
+        return this.throttled;
     }
 
     static long pack(int x, int z) {
@@ -633,6 +662,9 @@ final class LodGenerator {
 
     void stop() {
         this.running = false;
+        if (this.horizon != null) {
+            this.horizon.stop();
+        }
         this.scheduler.interrupt();
         this.workers.shutdown();
         try {

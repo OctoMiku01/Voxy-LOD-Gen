@@ -38,6 +38,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
     private final OptionInstance<Integer> radius = this.slider("radius", this.config.radius, 1, 4096, null);
     private final OptionInstance<Integer> featureRadius = this.slider("featureRadius", this.config.featureRadius, 0, 4096, null);
     private final OptionInstance<Integer> mapRadius = this.slider("mapRadius", this.config.mapRadius, 0, 16384, LodConfigScreen::offAtZero);
+    private final OptionInstance<Integer> horizonRadius = this.slider("horizonRadius", this.config.horizonRadius, 0, 2048, LodConfigScreen::offAtZero);
     private final OptionInstance<Boolean> terrainFirst = this.toggle("terrainFirst", this.config.terrainFirst);
     private final OptionInstance<Boolean> structures = this.toggle("structures", this.config.structures);
     private final OptionInstance<Boolean> sendSavedChunks = this.toggle("sendSavedChunks", this.config.sendSavedChunks);
@@ -127,6 +128,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 this.list.addSmall(this.mapRadius, this.viewDistanceMargin);
                 this.list.addSmall(this.structures, this.sendSavedChunks);
                 this.list.addSmall(this.keepUnderground);
+                this.list.addBig(this.horizonRadius);
             }
             case 1 -> {
                 this.list.addBig(this.performance);
@@ -165,6 +167,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 this.radius.set(defaults.radius);
                 this.featureRadius.set(defaults.featureRadius);
                 this.mapRadius.set(defaults.mapRadius);
+                this.horizonRadius.set(defaults.horizonRadius);
                 this.viewDistanceMargin.set(defaults.viewDistanceMargin);
                 this.structures.set(defaults.structures);
                 this.sendSavedChunks.set(defaults.sendSavedChunks);
@@ -236,6 +239,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.config.radius = this.radius.get();
         this.config.featureRadius = this.featureRadius.get();
         this.config.mapRadius = this.mapRadius.get();
+        this.config.horizonRadius = this.horizonRadius.get();
         this.config.terrainFirst = this.terrainFirst.get();
         this.config.structures = this.structures.get();
         this.config.sendSavedChunks = this.sendSavedChunks.get();
