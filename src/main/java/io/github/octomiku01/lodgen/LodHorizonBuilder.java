@@ -6,7 +6,7 @@ import net.minecraft.core.QuartPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BiomeTags;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.BiomeResolver;
+import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -31,7 +31,7 @@ final class LodHorizonBuilder {
     private final ServerLevel level;
     private final ChunkGenerator generator;
     private final RandomState randomState;
-    private final BiomeResolver biomes;
+    private final BiomeSource biomes;
     /** Height of the ground at grid corners, by block position; shared by the builders of all threads */
     private final ChunkCache<Integer> heights;
     private final int seaLevel;
@@ -41,7 +41,7 @@ final class LodHorizonBuilder {
         this.level = level;
         this.generator = level.getChunkSource().getGenerator();
         this.randomState = level.getChunkSource().randomState();
-        this.biomes = this.generator.getBiomeSource().createUncachedResolver(this.randomState);
+        this.biomes = this.generator.getBiomeSource();
         this.heights = heights;
         this.seaLevel = this.generator.getSeaLevel();
         this.minY = level.getMinY();
@@ -176,7 +176,7 @@ final class LodHorizonBuilder {
 
     private Ground ground(int x, int z, int height) {
         int surface = Math.max(height, this.minY);
-        Holder<Biome> biome = this.biomes.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(surface), QuartPos.fromBlock(z));
+        Holder<Biome> biome = this.biomes.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(surface), QuartPos.fromBlock(z), this.randomState.sampler());
         boolean snowy = biome.value().coldEnoughToSnow(new BlockPos(x, Math.max(surface, this.seaLevel), z), this.seaLevel);
         BlockState top;
         BlockState filler = Blocks.DIRT.defaultBlockState();
