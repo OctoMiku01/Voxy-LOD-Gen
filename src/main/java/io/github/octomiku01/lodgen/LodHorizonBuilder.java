@@ -90,6 +90,8 @@ final class LodHorizonBuilder {
         private long count;
         private double sum;
         private double sumSquares;
+        /** What was last logged: whether the guess is used; null before enough samples */
+        private Boolean used;
 
         synchronized void learn(int difference) {
             this.count++;
@@ -103,7 +105,14 @@ final class LodHorizonBuilder {
             }
             double mean = this.sum / this.count;
             double spread = Math.sqrt(Math.max(0, this.sumSquares / this.count - mean * mean));
-            return spread <= MAX_SPREAD ? (int) Math.round(mean) : UNKNOWN;
+            boolean use = spread <= MAX_SPREAD;
+            if (this.used == null || this.used != use) {
+                this.used = use;
+                LodGen.LOGGER.info("Horizon: the quick height guess is off by {} blocks, spread {} blocks over {} samples: {}",
+                        String.format("%.1f", mean), String.format("%.1f", spread), this.count,
+                        use ? "used further away" : "not used, the exact height stays");
+            }
+            return use ? (int) Math.round(mean) : UNKNOWN;
         }
     }
 
