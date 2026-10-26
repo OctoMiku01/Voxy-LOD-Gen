@@ -1,6 +1,8 @@
 package io.github.octomiku01.lodgen;
 
 import me.cortex.voxy.common.world.service.VoxelIngestService;
+import me.cortex.voxy.commonImpl.VoxyCommon;
+import me.cortex.voxy.commonImpl.VoxyInstance;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.Nullable;
@@ -14,6 +16,12 @@ final class VoxySink implements LodSink {
 
     private VoxySink(WorldIdentifier world) {
         this.world = world;
+    }
+
+    /** Sections Voxy was given but has not taken in yet; they wait in memory */
+    static int backlog() {
+        VoxyInstance instance = VoxyCommon.getInstance();
+        return instance == null ? 0 : instance.getIngestService().getTaskCount();
     }
 
     static @Nullable LodSink create(ServerLevel level) {
