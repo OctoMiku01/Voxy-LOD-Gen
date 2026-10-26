@@ -50,6 +50,9 @@ final class LodHorizon {
     private static final int MAX_VOXY_BACKLOG = 10_000;
     /** Ground heights at grid corners kept for the neighbouring chunks, which share them; a few rings' worth */
     private static final int HEIGHT_CACHE = 200_000;
+    /** Up to this many chunks away (1 km) the samples are 4 blocks apart, up to MEDIUM_DISTANCE 8, beyond that 16 */
+    private static final int FINE_DISTANCE = 64;
+    private static final int MEDIUM_DISTANCE = 128;
     /** Raised when rough LODs are built differently: files of an older format are dropped, so all is built again */
     private static final int FORMAT = 1;
     private static final long SAVE_INTERVAL_MILLIS = 60_000;
@@ -394,9 +397,10 @@ final class LodHorizon {
             if (distanceSquared <= (long) this.radius * this.radius || watcher.done.contains(chunk) || this.generator.hasReal(target, chunk)) {
                 continue;
             }
-            // Finer close to the radius, where the rough LODs meet the real ones; Voxy shows coarser detail further away
-            long radius = Math.max(1, this.radius);
-            int step = distanceSquared <= 4 * radius * radius ? 4 : distanceSquared <= 16 * radius * radius ? 8 : 16;
+            // Finer close by, coarser further away, where Voxy shows coarser detail anyway: by the distance itself, not
+            // by the radius, so a large radius does not leave the whole horizon on the finest grid
+            int step = distanceSquared <= (long) FINE_DISTANCE * FINE_DISTANCE ? 4
+                    : distanceSquared <= (long) MEDIUM_DISTANCE * MEDIUM_DISTANCE ? 8 : 16;
             SavedChunks saved = this.savedOf(target.level());
             boolean explored;
             synchronized (saved) {
