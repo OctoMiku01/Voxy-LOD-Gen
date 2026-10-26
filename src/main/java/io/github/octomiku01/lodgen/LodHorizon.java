@@ -51,6 +51,13 @@ final class LodHorizon {
     record Spot(ServerLevel level, int chunkX, int chunkZ) {
     }
 
+    /**
+     * For /lodgen: the ring it is on (-1 before it started in that dimension, beyond toRing once done), how many
+     * chunks of the dimension it did, and why it waits, if it does
+     */
+    record Status(int ring, int toRing, int done, @Nullable String waiting) {
+    }
+
     /** One chunk to do, with what it needs */
     private record Job(ServerLevel level, int x, int z, int step, LongOpenHashSet done, LodSink sink) {
     }
@@ -120,6 +127,12 @@ final class LodHorizon {
         this.save();
     }
 
+    synchronized Status status(ServerLevel level) {
+        boolean here = level.dimension().equals(this.dimension);
+        int ring = here ? this.ring : -1;
+        return new Status(ring, this.toRing, this.doneOf(level).size(), ring > this.toRing ? null : this.lastWaiting);
+    }
+
     /** Forgets what was done in this dimension, e.g. after Voxy's data was deleted: it is built again */
     synchronized void clear(ServerLevel level) {
         this.doneOf(level).clear();
@@ -181,7 +194,7 @@ final class LodHorizon {
         }
         @Nullable Spot spot = this.generator.hostSpot();
         String waiting = spot == null ? "no host" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down"
-                : !this.generator.hostCaughtUp() ? "real LODs first" : null;
+                : !this.generator.idle() ? "real LODs first" : null;
         if (waiting != null) {
             if (!waiting.equals(this.lastWaiting)) {
                 LodGen.LOGGER.info("Horizon waits: {}", waiting);
