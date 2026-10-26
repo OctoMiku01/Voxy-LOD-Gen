@@ -55,7 +55,7 @@ final class LodHorizon {
      * For /lodgen: the ring it is on (-1 before it started in that dimension, beyond toRing once done), how many
      * chunks of the dimension it did, and why it waits, if it does
      */
-    record Status(int ring, int toRing, int done, @Nullable String waiting) {
+    record Status(int ring, int toRing, int done, double rate, @Nullable String waiting) {
     }
 
     /** One chunk to do, with what it needs */
@@ -86,6 +86,10 @@ final class LodHorizon {
     private final Set<ResourceKey<Level>> unsaved = new HashSet<>();
     private final Map<ResourceKey<Level>, Path> files = new HashMap<>();
     private long lastSave = System.currentTimeMillis();
+    /** Chunks per second over the last few seconds, see {@link #updateRate} */
+    private double rate;
+    private long rateTime = System.currentTimeMillis();
+    private long rateBuilt;
     private final Map<ResourceKey<Level>, SavedChunks> saved = new HashMap<>();
     /** Per dimension, shared by all threads, see {@link LodHorizonBuilder} */
     private final Map<ResourceKey<Level>, ChunkCache<Integer>> heights = new HashMap<>();
@@ -130,7 +134,8 @@ final class LodHorizon {
     synchronized Status status(ServerLevel level) {
         boolean here = level.dimension().equals(this.dimension);
         int ring = here ? this.ring : -1;
-        return new Status(ring, this.toRing, this.doneOf(level).size(), ring > this.toRing ? null : this.lastWaiting);
+        this.updateRate();
+        return new Status(ring, this.toRing, this.doneOf(level).size(), this.rate, ring > this.toRing ? null : this.lastWaiting);
     }
 
     /** Forgets what was done in this dimension, e.g. after Voxy's data was deleted: it is built again */
@@ -189,6 +194,7 @@ final class LodHorizon {
     /** The next chunk to do, or null while there is none (no host, paused, slowed down, or all done) */
     private synchronized @Nullable Job next() {
         this.logStats();
+        this.updateRate();
         if (System.currentTimeMillis() - this.lastSave >= SAVE_INTERVAL_MILLIS) {
             this.save();
         }
@@ -252,6 +258,18 @@ final class LodHorizon {
             return new Job(spot.level(), x, z, step, dimensionDone, this.sink);
         }
         return null;
+    }
+
+    // Every few seconds; the generation's speed only counts real LODs, this one the horizon's
+    private void updateRate() {
+        long now = System.currentTimeMillis();
+        if (now - this.rateTime >= 5_000) {
+            long total = this.built.get();
+            double latest = (total - this.rateBuilt) * 1000.0 / (now - this.rateTime);
+            this.rate = this.rate == 0 ? latest : (this.rate + latest) / 2;
+            this.rateTime = now;
+            this.rateBuilt = total;
+        }
     }
 
     private void logStats() {
