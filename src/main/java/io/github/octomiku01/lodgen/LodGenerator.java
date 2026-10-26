@@ -578,6 +578,9 @@ final class LodGenerator {
             return false;
         }
         this.progressOf(viewer).clear();
+        if (viewer.host && this.horizon != null) {
+            this.horizon.clear(viewer.level);
+        }
         return true;
     }
 
