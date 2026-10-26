@@ -56,20 +56,20 @@ final class LodHorizonBuilder {
     /**
      * On 26.2 the exact height of the ground (vanilla walks down the noise column) costs about 2 ms, a hundred times
      * the quick guess vanilla uses to find the surface. That guess is off by a fairly steady amount, which depends on
-     * the world's noise settings (worldgen mods): it is learned where the exact height is needed anyway, close to the
-     * radius, and the corrected guess is used further away, where a few blocks do not show.
+     * the world's noise settings (worldgen mods): it is learned wherever the exact height is needed anyway, mostly close
+     * to the radius, and the corrected guess is used further away, where a few blocks do not show. The further away, the
+     * more it may scatter: up to the blocks between two grid corners, which the coarse grid smooths over anyway.
      */
     private int height(int x, int z, int step) {
         if (step > 4) {
-            int offset = this.estimate.offset();
+            int offset = this.estimate.offset(step);
             if (offset != Estimate.UNKNOWN) {
                 return this.quickSurface(x, z) + offset;
             }
         }
+        // Learned from every exact height, also further away: after a restart the rings close to the radius are done
         int exact = this.generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, this.level, this.randomState);
-        if (step == 4) {
-            this.estimate.learn(exact - this.quickSurface(x, z));
-        }
+        this.estimate.learn(exact - this.quickSurface(x, z));
         return exact;
     }
 
@@ -79,19 +79,20 @@ final class LodHorizonBuilder {
 
     /**
      * How far the quick guess of the surface is off from the exact height in one dimension, shared by all threads.
-     * Only used once enough samples agree; if the guess scatters too much (some generators), the exact height stays.
+     * Only used once enough samples agree, and only on a grid at least as coarse as the guess scatters; if it scatters
+     * more (some generators), the exact height stays.
      */
     static final class Estimate {
         static final int UNKNOWN = Integer.MIN_VALUE;
         private static final int NEEDED = 200;
-        /** Standard deviation of the error, in blocks, up to which the guess is used */
-        private static final double MAX_SPREAD = 8;
+        /** The coarsest grid; if the guess scatters more than its step, it is not used at all */
+        private static final int COARSEST_STEP = 16;
 
         private long count;
         private double sum;
         private double sumSquares;
-        /** What was last logged: whether the guess is used; null before enough samples */
-        private Boolean used;
+        /** What was last logged: the finest step the guess is used for, 0 for none; -1 before enough samples */
+        private int finestStep = -1;
 
         synchronized void learn(int difference) {
             this.count++;
@@ -99,20 +100,26 @@ final class LodHorizonBuilder {
             this.sumSquares += (double) difference * difference;
         }
 
-        synchronized int offset() {
+        /** @return the offset to add to the quick guess on a grid with this step, or UNKNOWN if it is not good enough */
+        synchronized int offset(int step) {
             if (this.count < NEEDED) {
                 return UNKNOWN;
             }
             double mean = this.sum / this.count;
+            // Standard deviation of the error, in blocks; the guess is used where the grid corners are further apart
             double spread = Math.sqrt(Math.max(0, this.sumSquares / this.count - mean * mean));
-            boolean use = spread <= MAX_SPREAD;
-            if (this.used == null || this.used != use) {
-                this.used = use;
+            int finest = 0;
+            for (int candidate = COARSEST_STEP; candidate > 4 && spread <= candidate; candidate /= 2) {
+                finest = candidate;
+            }
+            if (finest != this.finestStep) {
+                this.finestStep = finest;
                 LodGen.LOGGER.info("Horizon: the quick height guess is off by {} blocks, spread {} blocks over {} samples: {}",
                         String.format("%.1f", mean), String.format("%.1f", spread), this.count,
-                        use ? "used further away" : "not used, the exact height stays");
+                        finest == 0 ? "not used, the exact height stays"
+                                : "used where the grid corners are " + finest + " or more blocks apart");
             }
-            return use ? (int) Math.round(mean) : UNKNOWN;
+            return finest != 0 && step >= finest ? (int) Math.round(mean) : UNKNOWN;
         }
     }
 
