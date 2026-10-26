@@ -2,72 +2,47 @@ package io.github.octomiku01.lodgen;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
-import net.minecraft.core.QuartPos;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BiomeTags;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.BiomeResolver;
 import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.level.levelgen.RandomState;
 
 /**
- * Rough LODs for the horizon beyond the radius: no world generation, only the height of the ground at the corners of a
- * grid (from the generator's noise, by far the most of the cost) and the biome there. Between the corners the height
- * is interpolated block by block, so the ground forms slopes instead of flat squares with walls between them, and
- * neighbouring chunks meet without a seam. The columns get stone, a filler and a top block that fits the biome, water
- * up to the sea level, and a layer of leaves where forests grow. Far cheaper than a real LOD, and replaced by one as
- * soon as it is built. One builder per thread; the heights are shared through a cache.
+ * Rough LODs for the horizon beyond the radius, built from {@link HorizonSamples}: the height and biome of the ground
+ * at the corners of a grid. Between the corners the height is interpolated block by block, so the ground forms slopes
+ * instead of flat squares with walls between them, and neighbouring chunks meet without a seam. The columns get stone,
+ * a filler and a top block that fits the biome, water up to the sea level, and a layer of leaves where forests grow.
+ * Built on the server for the host, and by the clients of other players from the samples the server sends them.
  */
-final class LodHorizonBuilder {
+public final class LodHorizonBuilder {
     /** How deep the filler (dirt, sand...) reaches below the top block */
     private static final int FILLER_DEPTH = 3;
 
-    private final ServerLevel level;
-    private final ChunkGenerator generator;
-    private final RandomState randomState;
-    private final BiomeResolver biomes;
-    /** Height of the ground at grid corners, by block position; shared by the builders of all threads */
-    private final ChunkCache<Integer> heights;
+    private final Level level;
     private final int seaLevel;
-    private final int minY;
 
-    LodHorizonBuilder(ServerLevel level, ChunkCache<Integer> heights) {
+    public LodHorizonBuilder(Level level) {
         this.level = level;
-        this.generator = level.getChunkSource().getGenerator();
-        this.randomState = level.getChunkSource().randomState();
-        this.biomes = this.generator.getBiomeSource().createUncachedResolver(this.randomState);
-        this.heights = heights;
-        this.seaLevel = this.generator.getSeaLevel();
-        this.minY = level.getMinY();
+        this.seaLevel = level.getSeaLevel();
     }
 
     /** The blocks of the ground around a grid corner */
     private record Ground(BlockState top, BlockState filler, BlockState underwater, boolean canopy, BlockState leaves, boolean frozen) {
     }
 
-    /**
-     * @param step blocks between the grid corners (4, 8 or 16). Further away the grid can be coarser: Voxy shows
-     *             coarser detail there anyway
-     */
-    LodChunk build(int chunkX, int chunkZ, int step) {
-        int corners = 16 / step + 1;
-        int[] cornerHeight = new int[corners * corners];
+    public LodChunk build(int chunkX, int chunkZ, HorizonSamples samples) {
+        int step = samples.step();
+        int corners = samples.corners();
+        int[] cornerHeight = samples.heights();
         Ground[] cornerGround = new Ground[corners * corners];
         for (int i = 0; i < corners; i++) {
             for (int j = 0; j < corners; j++) {
-                int x = chunkX * 16 + i * step;
-                int z = chunkZ * 16 + j * step;
-                // The first block above the solid ground, below water if there is some
-                int height = this.heights.get(LodGenerator.pack(x, z),
-                        key -> this.generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, this.level, this.randomState));
-                cornerHeight[i * corners + j] = height;
-                cornerGround[i * corners + j] = this.ground(x, z, height);
+                cornerGround[i * corners + j] = this.ground(chunkX * 16 + i * step, chunkZ * 16 + j * step, cornerHeight[i * corners + j],
+                        samples.biomes()[i * corners + j]);
             }
         }
 
@@ -174,9 +149,8 @@ final class LodHorizonBuilder {
         return Blocks.AIR.defaultBlockState();
     }
 
-    private Ground ground(int x, int z, int height) {
-        int surface = Math.max(height, this.minY);
-        Holder<Biome> biome = this.biomes.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(surface), QuartPos.fromBlock(z));
+    private Ground ground(int x, int z, int height, Holder<Biome> biome) {
+        int surface = Math.max(height, this.level.getMinY());
         boolean snowy = biome.value().coldEnoughToSnow(new BlockPos(x, Math.max(surface, this.seaLevel), z), this.seaLevel);
         BlockState top;
         BlockState filler = Blocks.DIRT.defaultBlockState();

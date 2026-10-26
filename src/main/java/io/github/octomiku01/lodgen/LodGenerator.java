@@ -406,7 +406,7 @@ final class LodGenerator {
     private final Thread scheduler;
     /** When the last chunk was handed to the workers; the horizon waits until there is nothing left for a while */
     private volatile long lastQueued = System.currentTimeMillis();
-    /** Rough LODs beyond the radius for the host, if horizonRadius asks for them */
+    /** Rough LODs beyond the radius, if horizonRadius asks for them */
     private final @Nullable LodHorizon horizon;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
@@ -421,6 +421,8 @@ final class LodGenerator {
     /** Workers wake the scheduler through this as soon as they finish a chunk */
     private final Object workerFinished = new Object();
     private volatile List<Viewer> viewers = List.of();
+    /** Who gets the horizon: the host, and players whose client can build it; published by the server thread */
+    private volatile List<LodHorizon.Target> horizonTargets = List.of();
     private final Map<UUID, MapFocus> mapFocus = new ConcurrentHashMap<>();
     private volatile boolean running = true;
     private volatile boolean paused;
@@ -447,29 +449,26 @@ final class LodGenerator {
         this.scheduler.setDaemon(true);
         this.scheduler.start();
         LodGen.LOGGER.info("Generating LODs up to {} chunks away with {} threads ({})", config.radius, config.workerThreads(), config.performance);
-        this.horizon = this.localVoxy && !benchmark && config.horizonRadius > config.radius
-                ? new LodHorizon(this, config) : null;
+        this.horizon = !benchmark && config.horizonRadius > config.radius ? new LodHorizon(this, config) : null;
     }
 
-    /** Where the player hosting this game is, for the horizon; null without one */
-    LodHorizon.@Nullable Spot hostSpot() {
-        for (Viewer viewer : this.viewers) {
-            if (viewer.host) {
-                return new LodHorizon.Spot(viewer.level, viewer.chunkX, viewer.chunkZ);
-            }
-        }
-        return null;
+    List<LodHorizon.Target> horizonTargets() {
+        return this.horizonTargets;
     }
 
-    /** Whether the host already got a real LOD of this chunk (generated or read from the save) */
-    boolean hostHas(ServerLevel level, long key) {
-        for (Viewer viewer : this.viewers) {
-            if (viewer.host && viewer.level == level) {
-                Progress progress = this.progressOf(viewer);
-                return progress.isDone(key, false) || progress.hasSaved(key, 1);
-            }
+    /** Whether this player already got a real LOD of the chunk in their dimension (generated or read from the save) */
+    boolean hasReal(LodHorizon.Target target, long key) {
+        Viewer viewer = this.viewerOf(target.id());
+        if (viewer == null || viewer.level != target.level()) {
+            return false;
         }
-        return false;
+        Progress progress = this.progressOf(viewer);
+        return progress.isDone(key, false) || progress.hasSaved(key, 1);
+    }
+
+    /** Whether Voxy runs in this game instance */
+    boolean localVoxy() {
+        return this.localVoxy;
     }
 
     boolean isThrottled() {
@@ -507,6 +506,32 @@ final class LodGenerator {
             current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, 0, null, 0, 0, 0));
         }
         this.viewers = List.copyOf(current);
+        if (this.horizon != null) {
+            List<LodHorizon.Target> targets = new ArrayList<>();
+            for (Viewer viewer : current) {
+                if (viewer.host || viewer.player != null && ServerPlayNetworking.canSend(viewer.player, LodHorizonPayload.TYPE)) {
+                    targets.add(horizonTarget(viewer));
+                }
+            }
+            this.horizonTargets = List.copyOf(targets);
+        }
+    }
+
+    private static LodHorizon.Target horizonTarget(Viewer viewer) {
+        return new LodHorizon.Target(viewer.id, viewer.host, viewer.level, viewer.chunkX, viewer.chunkZ, viewer.player);
+    }
+
+    /** Whether this player gets the horizon */
+    private boolean getsHorizon(Viewer viewer) {
+        if (this.horizon == null) {
+            return false;
+        }
+        for (LodHorizon.Target target : this.horizonTargets) {
+            if (target.id().equals(viewer.id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -575,8 +600,8 @@ final class LodGenerator {
             return false;
         }
         this.progressOf(viewer).clear();
-        if (viewer.host && this.horizon != null) {
-            this.horizon.clear(viewer.level);
+        if (this.getsHorizon(viewer)) {
+            this.horizon.clear(horizonTarget(viewer));
         }
         return true;
     }
@@ -602,8 +627,8 @@ final class LodGenerator {
                 if (viewer.focusRadius > 0) {
                     rings += ", map at " + viewer.focusX * 16 + ", " + viewer.focusZ * 16 + " " + ringStatus(progress.focus.shownRing, viewer.focusRadius);
                 }
-                if (viewer.host && this.horizon != null) {
-                    LodHorizon.Status horizon = this.horizon.status(viewer.level);
+                if (this.getsHorizon(viewer)) {
+                    LodHorizon.Status horizon = this.horizon.status(horizonTarget(viewer));
                     rings += ", horizon " + ringStatus(horizon.ring(), horizon.toRing()) + " (" + horizon.done() + " LODs, "
                             + String.format("%.0f/s", horizon.rate()) + (horizon.waiting() != null ? ", waits: " + horizon.waiting() : "") + ")";
                 }
@@ -663,8 +688,8 @@ final class LodGenerator {
                             .append(LodChat.progress(progress.focus.shownRing, viewer.focusRadius))
                             .append(LodChat.label(" at ")).append(LodChat.value(viewer.focusX * 16 + ", " + viewer.focusZ * 16));
                 }
-                if (viewer.host && this.horizon != null) {
-                    LodHorizon.Status horizon = this.horizon.status(viewer.level);
+                if (this.getsHorizon(viewer)) {
+                    LodHorizon.Status horizon = this.horizon.status(horizonTarget(viewer));
                     text.append(LodChat.newLine()).append(LodChat.label("  Horizon  ")).append(LodChat.progress(horizon.ring(), horizon.toRing()));
                     if (horizon.waiting() != null) {
                         text.append(Component.literal("  waits: " + horizon.waiting()).withStyle(ChatFormatting.YELLOW));
@@ -673,8 +698,8 @@ final class LodGenerator {
                     }
                 }
                 text.append(LodChat.newLine()).append(LodChat.label("  LOD chunks  ")).append(LodChat.value(progress.doneCount()));
-                if (viewer.host && this.horizon != null) {
-                    text.append(LodChat.separator()).append(LodChat.value(this.horizon.status(viewer.level).done())).append(LodChat.label(" horizon"));
+                if (this.getsHorizon(viewer)) {
+                    text.append(LodChat.separator()).append(LodChat.value(this.horizon.status(horizonTarget(viewer)).done())).append(LodChat.label(" horizon"));
                 }
             }
         } else if (asking != null) {

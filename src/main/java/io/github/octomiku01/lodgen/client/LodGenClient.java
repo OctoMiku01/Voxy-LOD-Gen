@@ -3,6 +3,7 @@ package io.github.octomiku01.lodgen.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
+import io.github.octomiku01.lodgen.LodHorizonPayload;
 import io.github.octomiku01.lodgen.MapPlayersPayload;
 import io.github.octomiku01.lodgen.client.map.MapPlayers;
 import io.github.octomiku01.lodgen.client.map.MapScreen;
@@ -32,8 +33,11 @@ public class LodGenClient implements ClientModInitializer {
         if (FabricLoader.getInstance().isModLoaded("voxy")) {
             ClientPlayNetworking.registerGlobalReceiver(LodChunkPayload.TYPE, (payload, context) -> ClientLodReceiver.receive(payload, context.client()));
             ClientTickEvents.END_CLIENT_TICK.register(ClientLodReceiver::tick);
+            ClientPlayNetworking.registerGlobalReceiver(LodHorizonPayload.TYPE, (payload, context) -> ClientHorizonReceiver.receive(payload, context.client()));
+            ClientTickEvents.END_CLIENT_TICK.register(ClientHorizonReceiver::tick);
             ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
                 ClientLodReceiver.clear();
+                ClientHorizonReceiver.clear();
                 FarEntities.reset();
                 MapPlayers.clear();
             });

@@ -1,5 +1,6 @@
 package io.github.octomiku01.lodgen;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.BufferedInputStream;
@@ -10,17 +11,20 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -28,38 +32,73 @@ import net.minecraft.world.level.storage.LevelResource;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Fills the horizon beyond the radius for the player hosting a single player world: square rings around them, from
- * just outside the radius up to horizonRadius. Rough LODs (see {@link LodHorizonBuilder}) where nothing exists yet,
- * real ones read from the save where chunks were explored; chunks the player already got are left alone, and real
- * LODs replace the rough ones whenever they come. The further a ring, the coarser its samples. Runs on threads of its
- * own, pausing with the generation, and only once the host has all real LODs around them. Which chunks it did is saved
- * per dimension in {@code <world>/lodgen/horizon/}.
+ * Fills the horizon beyond the radius: square rings around each player who gets LODs, from just outside the radius up
+ * to horizonRadius. Rough LODs where nothing exists yet, real ones read from the save where chunks were explored;
+ * chunks the player already got are left alone, and real LODs replace the rough ones whenever they come. The further a
+ * ring, the coarser its samples. Runs on threads of its own, pausing with the generation, and only once the real LODs
+ * are done.
+ * <p>
+ * The rough LODs are made of {@link HorizonSamples}, taken once per world and saved ({@link HorizonStore}). The host
+ * gets the LODs built from them straight into Voxy; other players get the samples, a few dozen bytes per chunk, and
+ * their client builds the LODs. Which chunks each player got is saved per dimension in {@code <world>/lodgen/horizon/}.
  */
 final class LodHorizon {
-    /** The host moving this many chunks away starts the rings again around where they are */
+    /** A player moving this many chunks away starts their rings again around where they are */
     private static final int RECENTER_DISTANCE = 32;
     private static final long STATS_INTERVAL_MILLIS = 30_000;
-    /** Rough LODs are built far faster than Voxy takes them in: above this many waiting sections, the horizon waits */
+    /** Rough LODs are built far faster than Voxy takes them in: above this many waiting sections, the host waits */
     private static final int MAX_VOXY_BACKLOG = 10_000;
     /** Ground heights at grid corners kept for the neighbouring chunks, which share them; a few rings' worth */
     private static final int HEIGHT_CACHE = 200_000;
     /** Raised when rough LODs are built differently: files of an older format are dropped, so all is built again */
     private static final int FORMAT = 1;
     private static final long SAVE_INTERVAL_MILLIS = 60_000;
+    /** Samples sent to a player wait at most this long to go out with more */
+    private static final long BATCH_MILLIS = 1_000;
+    /** A real LOD read from the save is about this many times the size of a chunk's samples, for the send rate */
+    private static final int REAL_COST = 50;
 
-    /** Where the host is, published by the generator */
-    record Spot(ServerLevel level, int chunkX, int chunkZ) {
+    /** Someone who gets the horizon: the host (straight into Voxy) or a player with this mod (over the network) */
+    record Target(UUID id, boolean host, ServerLevel level, int chunkX, int chunkZ, @Nullable ServerPlayer player) {
     }
 
     /**
      * For /lodgen: the ring it is on (-1 before it started in that dimension, beyond toRing once done), how many
-     * chunks of the dimension it did, and why it waits, if it does
+     * chunks of the dimension the player got, and why it waits, if it does
      */
     record Status(int ring, int toRing, int done, double rate, @Nullable String waiting) {
     }
 
+    /** One player's horizon in one dimension */
+    private static final class Watcher {
+        final ResourceKey<Level> dimension;
+        final Path file;
+        /** Chunks the player got; guarded by the horizon */
+        final LongOpenHashSet done;
+        boolean unsaved;
+        boolean started;
+        int centerX;
+        int centerZ;
+        int ring;
+        int index;
+        double tokens;
+        long lastRefill;
+        /** Only the host; created when they are first served */
+        @Nullable LodSink sink;
+        // Samples waiting to be sent, guarded by the batch
+        final List<LodHorizonPayload.Chunk> batch = new ArrayList<>();
+        final LongArrayList batchKeys = new LongArrayList();
+        long batchSince;
+
+        Watcher(ResourceKey<Level> dimension, Path file) {
+            this.dimension = dimension;
+            this.file = file;
+            this.done = load(file);
+        }
+    }
+
     /** One chunk to do, with what it needs */
-    private record Job(ServerLevel level, int x, int z, int step, LongOpenHashSet done, LodSink sink) {
+    private record Job(Watcher watcher, Target target, int x, int z, int step, boolean explored) {
     }
 
     private final LodGenerator generator;
@@ -72,28 +111,23 @@ final class LodHorizon {
     private final AtomicLong built = new AtomicLong();
 
     // Guarded by this
-    private @Nullable ResourceKey<Level> dimension;
-    private @Nullable LodSink sink;
-    private int centerX;
-    private int centerZ;
-    private int ring;
-    private int index;
+    private final Map<UUID, Map<ResourceKey<Level>, Watcher>> watchers = new HashMap<>();
+    /** Who gets the horizon next, so all players move on at the same pace */
+    private int turn;
     private @Nullable String lastWaiting;
     private long lastStats = System.currentTimeMillis();
     private long builtAtLastStats;
-    /** Per dimension: chunks done, loaded from and saved to the world */
-    private final Map<ResourceKey<Level>, LongOpenHashSet> done = new HashMap<>();
-    private final Set<ResourceKey<Level>> unsaved = new HashSet<>();
-    private final Map<ResourceKey<Level>, Path> files = new HashMap<>();
     private long lastSave = System.currentTimeMillis();
     /** Chunks per second over the last few seconds, see {@link #updateRate} */
     private double rate;
     private long rateTime = System.currentTimeMillis();
     private long rateBuilt;
+
     private final Map<ResourceKey<Level>, SavedChunks> saved = new HashMap<>();
-    /** Per dimension, shared by all threads, see {@link LodHorizonBuilder} */
+    /** Per dimension, shared by all threads, see {@link LodHorizonSampler} */
     private final Map<ResourceKey<Level>, ChunkCache<Integer>> heights = new HashMap<>();
-    // Builders are per thread, see run
+    private final Map<ResourceKey<Level>, HorizonStore> stores = new ConcurrentHashMap<>();
+    // Builders and samplers are per thread, see run
 
     LodHorizon(LodGenerator generator, LodConfig config) {
         this.generator = generator;
@@ -103,8 +137,7 @@ final class LodHorizon {
         this.fromRing = (int) (config.radius / Math.sqrt(2));
         this.radius = config.radius;
         this.toRing = config.horizonRadius;
-        this.ring = this.fromRing;
-        // Half of the generation's threads: the real LODs around the player come first
+        // Half of the generation's threads: the real LODs around the players come first
         int count = Math.max(1, config.workerThreads() / 2);
         for (int i = 1; i <= count; i++) {
             Thread thread = new LodWorkerThread(this::run, "LodGen-Horizon-" + i);
@@ -128,59 +161,62 @@ final class LodHorizon {
                 break;
             }
         }
+        // Samples still waiting to be sent are not marked as done: they are sent next time
         this.save();
     }
 
-    synchronized Status status(ServerLevel level) {
-        boolean here = level.dimension().equals(this.dimension);
-        int ring = here ? this.ring : -1;
+    synchronized Status status(Target target) {
+        Watcher watcher = this.watcherOf(target);
+        int ring = watcher.started ? watcher.ring : -1;
         this.updateRate();
-        return new Status(ring, this.toRing, this.doneOf(level).size(), this.rate, ring > this.toRing ? null : this.lastWaiting);
+        return new Status(ring, this.toRing, watcher.done.size(), this.rate, ring > this.toRing ? null : this.lastWaiting);
     }
 
-    /** Forgets what was done in this dimension, e.g. after Voxy's data was deleted: it is built again */
-    synchronized void clear(ServerLevel level) {
-        this.doneOf(level).clear();
-        this.unsaved.add(level.dimension());
+    /** Forgets what this player got in this dimension, e.g. after Voxy's data was deleted: they get it again */
+    synchronized void clear(Target target) {
+        Watcher watcher = this.watcherOf(target);
+        watcher.done.clear();
+        watcher.unsaved = true;
         // Start the rings again
-        this.dimension = null;
+        watcher.started = false;
     }
 
     private void run() {
-        // A builder per dimension and thread: they keep scratch state
+        // Per dimension and thread: they keep scratch state
+        Map<ResourceKey<Level>, LodHorizonSampler> samplers = new HashMap<>();
         Map<ResourceKey<Level>, LodHorizonBuilder> rough = new HashMap<>();
         Map<ResourceKey<Level>, LodChunkBuilder> real = new HashMap<>();
         try {
             while (this.running) {
-                if (VoxySink.backlog() > MAX_VOXY_BACKLOG) {
-                    Thread.sleep(50);
-                    continue;
-                }
                 @Nullable Job job = this.next();
                 if (job == null) {
-                    Thread.sleep(1_000);
+                    Thread.sleep(200);
                     continue;
                 }
-                ResourceKey<Level> key = job.level.dimension();
-                @Nullable LodChunk lod;
-                SavedChunks saved = this.savedOf(job.level);
-                boolean explored;
-                synchronized (saved) {
-                    explored = saved.exists(job.x, job.z);
-                }
-                if (explored) {
-                    lod = real.computeIfAbsent(key, k -> LodChunkBuilder.create(job.level, this.config.structures, this.config.keepUnderground))
+                ServerLevel level = job.target.level();
+                ResourceKey<Level> key = level.dimension();
+                long chunk = LodGenerator.pack(job.x, job.z);
+                if (job.explored) {
+                    LodChunk lod = real.computeIfAbsent(key, k -> LodChunkBuilder.create(level, this.config.structures, this.config.keepUnderground))
                             .fromSaved(new ChunkPos(job.x, job.z));
+                    if (lod != null && this.deliver(job, lod)) {
+                        this.markDone(job.watcher, chunk);
+                    }
                 } else {
-                    lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(job.level, this.heightsOf(key))).build(job.x, job.z, job.step);
-                }
-                while (lod != null && this.running && !job.sink.accept(lod)) {
-                    // Voxy is not ready yet, e.g. right after joining
-                    Thread.sleep(500);
-                }
-                synchronized (this) {
-                    job.done.add(LodGenerator.pack(job.x, job.z));
-                    this.unsaved.add(key);
+                    HorizonStore store = this.storeOf(level);
+                    HorizonSamples samples = store.get(job.x, job.z, job.step);
+                    if (samples == null) {
+                        samples = samplers.computeIfAbsent(key, k -> new LodHorizonSampler(level, this.heightsOf(key))).sample(job.x, job.z, job.step);
+                        store.put(job.x, job.z, samples);
+                    }
+                    if (job.target.host()) {
+                        LodChunk lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(level)).build(job.x, job.z, samples);
+                        if (this.deliver(job, lod)) {
+                            this.markDone(job.watcher, chunk);
+                        }
+                    } else {
+                        this.addToBatch(job, chunk, samples);
+                    }
                 }
                 this.built.incrementAndGet();
             }
@@ -191,71 +227,184 @@ final class LodHorizon {
         }
     }
 
-    /** The next chunk to do, or null while there is none (no host, paused, slowed down, or all done) */
-    private synchronized @Nullable Job next() {
-        this.logStats();
-        this.updateRate();
-        if (System.currentTimeMillis() - this.lastSave >= SAVE_INTERVAL_MILLIS) {
-            this.save();
+    /** @return whether the LOD reached the player; if not, it is done again later */
+    private boolean deliver(Job job, LodChunk lod) throws InterruptedException {
+        if (!job.target.host()) {
+            ServerPlayer player = job.target.player();
+            return player != null && new NetworkSink(player, job.watcher.dimension).accept(lod);
         }
-        @Nullable Spot spot = this.generator.hostSpot();
-        String waiting = spot == null ? "no host" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down"
-                : !this.generator.idle() ? "real LODs first" : null;
-        if (waiting != null) {
-            if (!waiting.equals(this.lastWaiting)) {
-                LodGen.LOGGER.info("Horizon waits: {}", waiting);
-                this.lastWaiting = waiting;
+        while (this.running) {
+            if (job.watcher.sink.accept(lod)) {
+                return true;
+            }
+            // Voxy is not ready yet, e.g. right after joining
+            Thread.sleep(500);
+        }
+        return false;
+    }
+
+    private synchronized void markDone(Watcher watcher, long chunk) {
+        watcher.done.add(chunk);
+        watcher.unsaved = true;
+    }
+
+    private void addToBatch(Job job, long chunk, HorizonSamples samples) {
+        Watcher watcher = job.watcher;
+        synchronized (watcher.batch) {
+            if (watcher.batch.isEmpty()) {
+                watcher.batchSince = System.currentTimeMillis();
+            }
+            watcher.batch.add(new LodHorizonPayload.Chunk(job.x, job.z, samples));
+            watcher.batchKeys.add(chunk);
+            if (watcher.batch.size() >= LodHorizonPayload.MAX_CHUNKS) {
+                this.flush(watcher, job.target.player());
+            }
+        }
+    }
+
+    /** Sends the samples waiting for this player; if they left or changed dimension, they get them next time */
+    private void flush(Watcher watcher, @Nullable ServerPlayer player) {
+        synchronized (watcher.batch) {
+            if (watcher.batch.isEmpty()) {
+                return;
+            }
+            if (player != null && !player.hasDisconnected() && player.level().dimension() == watcher.dimension) {
+                ServerPlayNetworking.send(player, new LodHorizonPayload(watcher.dimension, List.copyOf(watcher.batch)));
+                synchronized (this) {
+                    watcher.done.addAll(watcher.batchKeys);
+                    watcher.unsaved = true;
+                }
+            }
+            watcher.batch.clear();
+            watcher.batchKeys.clear();
+        }
+    }
+
+    /** The next chunk to do, or null while there is none (no players, paused, slowed down, or all done) */
+    private @Nullable Job next() {
+        List<Target> targets = this.generator.horizonTargets();
+        // Outside the lock on the horizon: flushing takes the batch's lock, and markDone takes this one inside it
+        this.flushOld(targets);
+        synchronized (this) {
+            this.logStats();
+            this.updateRate();
+            if (System.currentTimeMillis() - this.lastSave >= SAVE_INTERVAL_MILLIS) {
+                this.save();
+            }
+            String waiting = targets.isEmpty() ? "no players" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down"
+                    : !this.generator.idle() ? "real LODs first" : null;
+            if (waiting != null) {
+                if (!waiting.equals(this.lastWaiting)) {
+                    LodGen.LOGGER.info("Horizon waits: {}", waiting);
+                    this.lastWaiting = waiting;
+                }
+                return null;
+            }
+            this.lastWaiting = null;
+            long now = System.currentTimeMillis();
+            for (int k = 0; k < targets.size(); k++) {
+                Target target = targets.get((this.turn + k) % targets.size());
+                @Nullable Job job = this.nextFor(target, now);
+                if (job != null) {
+                    this.turn = (this.turn + k + 1) % targets.size();
+                    return job;
+                }
             }
             return null;
         }
-        this.lastWaiting = null;
-        ResourceKey<Level> key = spot.level().dimension();
-        if (!key.equals(this.dimension) || Math.max(Math.abs(spot.chunkX() - this.centerX), Math.abs(spot.chunkZ() - this.centerZ)) >= RECENTER_DISTANCE) {
-            this.dimension = key;
-            this.sink = VoxySink.create(spot.level());
-            this.centerX = spot.chunkX();
-            this.centerZ = spot.chunkZ();
-            this.ring = this.fromRing;
-            this.index = 0;
+    }
+
+    private void flushOld(List<Target> targets) {
+        long now = System.currentTimeMillis();
+        for (Target target : targets) {
+            if (target.host()) {
+                continue;
+            }
+            Watcher watcher;
+            synchronized (this) {
+                watcher = this.watcherOf(target);
+            }
+            boolean old;
+            synchronized (watcher.batch) {
+                old = !watcher.batch.isEmpty() && now - watcher.batchSince >= BATCH_MILLIS;
+            }
+            if (old) {
+                this.flush(watcher, target.player());
+            }
         }
-        if (this.sink == null) {
-            return null;
+    }
+
+    // Guarded by this
+    private @Nullable Job nextFor(Target target, long now) {
+        Watcher watcher = this.watcherOf(target);
+        if (target.host()) {
+            if (VoxySink.backlog() > MAX_VOXY_BACKLOG) {
+                return null;
+            }
+            if (watcher.sink == null) {
+                watcher.sink = VoxySink.create(target.level());
+                if (watcher.sink == null) {
+                    return null;
+                }
+            }
+        } else {
+            // Protects the player's connection, like the real LODs
+            double limit = this.config.maxHorizonChunksPerSecondPerPlayer;
+            watcher.tokens = watcher.lastRefill == 0 ? limit : Math.min(limit, watcher.tokens + (now - watcher.lastRefill) * limit / 1000.0);
+            watcher.lastRefill = now;
+            if (watcher.tokens < 1) {
+                return null;
+            }
         }
-        LongOpenHashSet dimensionDone = this.doneOf(spot.level());
-        while (this.ring <= this.toRing) {
+        if (!watcher.started || Math.max(Math.abs(target.chunkX() - watcher.centerX), Math.abs(target.chunkZ() - watcher.centerZ)) >= RECENTER_DISTANCE) {
+            watcher.started = true;
+            watcher.centerX = target.chunkX();
+            watcher.centerZ = target.chunkZ();
+            watcher.ring = this.fromRing;
+            watcher.index = 0;
+        }
+        while (watcher.ring <= this.toRing) {
             // Square ring: 8 * ring chunks, starting at its north-west corner
-            int side = 2 * this.ring;
-            int i = this.index;
+            int side = 2 * watcher.ring;
+            int i = watcher.index;
             int x;
             int z;
             if (i < side) {
-                x = this.centerX - this.ring + i;
-                z = this.centerZ - this.ring;
+                x = watcher.centerX - watcher.ring + i;
+                z = watcher.centerZ - watcher.ring;
             } else if (i < 2 * side) {
-                x = this.centerX + this.ring;
-                z = this.centerZ - this.ring + i - side;
+                x = watcher.centerX + watcher.ring;
+                z = watcher.centerZ - watcher.ring + i - side;
             } else if (i < 3 * side) {
-                x = this.centerX + this.ring - (i - 2 * side);
-                z = this.centerZ + this.ring;
+                x = watcher.centerX + watcher.ring - (i - 2 * side);
+                z = watcher.centerZ + watcher.ring;
             } else {
-                x = this.centerX - this.ring;
-                z = this.centerZ + this.ring - (i - 3 * side);
+                x = watcher.centerX - watcher.ring;
+                z = watcher.centerZ + watcher.ring - (i - 3 * side);
             }
-            if (++this.index >= 4 * side) {
-                this.index = 0;
-                this.ring++;
+            if (++watcher.index >= 4 * side) {
+                watcher.index = 0;
+                watcher.ring++;
             }
-            long dx = x - this.centerX;
-            long dz = z - this.centerZ;
+            long dx = x - watcher.centerX;
+            long dz = z - watcher.centerZ;
             long distanceSquared = dx * dx + dz * dz;
             long chunk = LodGenerator.pack(x, z);
-            if (distanceSquared <= (long) this.radius * this.radius || dimensionDone.contains(chunk) || this.generator.hostHas(spot.level(), chunk)) {
+            if (distanceSquared <= (long) this.radius * this.radius || watcher.done.contains(chunk) || this.generator.hasReal(target, chunk)) {
                 continue;
             }
             // Finer close to the radius, where the rough LODs meet the real ones; Voxy shows coarser detail further away
             long radius = Math.max(1, this.radius);
             int step = distanceSquared <= 4 * radius * radius ? 4 : distanceSquared <= 16 * radius * radius ? 8 : 16;
-            return new Job(spot.level(), x, z, step, dimensionDone, this.sink);
+            SavedChunks saved = this.savedOf(target.level());
+            boolean explored;
+            synchronized (saved) {
+                explored = saved.exists(x, z);
+            }
+            if (!target.host()) {
+                watcher.tokens -= explored ? REAL_COST : 1;
+            }
+            return new Job(watcher, target, x, z, step, explored);
         }
         return null;
     }
@@ -279,19 +428,29 @@ final class LodHorizon {
         }
         long total = this.built.get();
         if (total != this.builtAtLastStats) {
-            LodGen.LOGGER.info("Horizon: {} LODs, {} per second, ring {}/{}, {} sections waiting for Voxy", total,
-                    (total - this.builtAtLastStats) * 1000 / (now - this.lastStats), Math.min(this.ring, this.toRing), this.toRing, VoxySink.backlog());
+            StringBuilder rings = new StringBuilder();
+            for (Map<ResourceKey<Level>, Watcher> byDimension : this.watchers.values()) {
+                for (Watcher watcher : byDimension.values()) {
+                    if (watcher.started && watcher.ring <= this.toRing) {
+                        rings.append(rings.isEmpty() ? "" : ", ").append(watcher.ring);
+                    }
+                }
+            }
+            LodGen.LOGGER.info("Horizon: {} LODs, {} per second, ring {} of {}{}", total, (total - this.builtAtLastStats) * 1000 / (now - this.lastStats),
+                    rings.isEmpty() ? "-" : rings, this.toRing, this.generator.localVoxy() ? ", " + VoxySink.backlog() + " sections waiting for Voxy" : "");
         }
         this.lastStats = now;
         this.builtAtLastStats = total;
     }
 
-    private synchronized LongOpenHashSet doneOf(ServerLevel level) {
-        return this.done.computeIfAbsent(level.dimension(), key -> {
-            Path root = level.getServer().getWorldPath(LevelResource.ROOT).resolve("lodgen").resolve("horizon");
-            Path file = root.resolve(key.identifier().getNamespace()).resolve(key.identifier().getPath() + ".bin");
-            this.files.put(key, file);
-            return load(file);
+    // Guarded by this
+    private Watcher watcherOf(Target target) {
+        return this.watchers.computeIfAbsent(target.id(), id -> new HashMap<>()).computeIfAbsent(target.level().dimension(), key -> {
+            Identifier id = key.identifier();
+            Path root = target.level().getServer().getWorldPath(LevelResource.ROOT).resolve("lodgen").resolve("horizon");
+            // The host's file stays where it was before other players got the horizon
+            Path folder = target.host() ? root : root.resolve("players").resolve(target.id().toString());
+            return new Watcher(key, folder.resolve(id.getNamespace()).resolve(id.getPath() + ".bin"));
         });
     }
 
@@ -318,34 +477,50 @@ final class LodHorizon {
 
     private synchronized void save() {
         this.lastSave = System.currentTimeMillis();
-        for (ResourceKey<Level> key : this.unsaved) {
-            Path file = this.files.get(key);
-            LongOpenHashSet set = this.done.get(key);
-            if (file == null || set == null) {
-                continue;
-            }
-            try {
-                Files.createDirectories(file.getParent());
-                Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-                try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(Files.newOutputStream(temp))))) {
-                    out.writeInt(FORMAT);
-                    out.writeInt(set.size());
-                    for (LongIterator it = set.iterator(); it.hasNext(); ) {
-                        out.writeLong(it.nextLong());
-                    }
+        for (Map<ResourceKey<Level>, Watcher> byDimension : this.watchers.values()) {
+            for (Watcher watcher : byDimension.values()) {
+                if (watcher.unsaved) {
+                    save(watcher.file, watcher.done);
+                    watcher.unsaved = false;
                 }
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException e) {
-                LodGen.LOGGER.error("Could not save {}", file, e);
             }
         }
-        this.unsaved.clear();
+        for (HorizonStore store : this.stores.values()) {
+            store.save();
+        }
+    }
+
+    private static void save(Path file, LongOpenHashSet set) {
+        try {
+            Files.createDirectories(file.getParent());
+            Path temp = file.resolveSibling(file.getFileName() + ".tmp");
+            try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(Files.newOutputStream(temp))))) {
+                out.writeInt(FORMAT);
+                out.writeInt(set.size());
+                for (LongIterator it = set.iterator(); it.hasNext(); ) {
+                    out.writeLong(it.nextLong());
+                }
+            }
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            LodGen.LOGGER.error("Could not save {}", file, e);
+        }
     }
 
     private ChunkCache<Integer> heightsOf(ResourceKey<Level> dimension) {
         synchronized (this.heights) {
             return this.heights.computeIfAbsent(dimension, k -> new ChunkCache<>(HEIGHT_CACHE));
         }
+    }
+
+    private HorizonStore storeOf(ServerLevel level) {
+        return this.stores.computeIfAbsent(level.dimension(), key -> {
+            Identifier id = key.identifier();
+            Path folder = level.getServer().getWorldPath(LevelResource.ROOT).resolve("lodgen").resolve("samples")
+                    .resolve(id.getNamespace()).resolve(id.getPath());
+            // The regions the rings pass through stay in memory: a ring of radius r touches about r / 4 of them
+            return new HorizonStore(level, folder, Math.max(64, this.toRing / 2));
+        });
     }
 
     private SavedChunks savedOf(ServerLevel level) {
