@@ -7,6 +7,7 @@
 		"GenerationChunkHolderAccessor",
 		"GeneratorExecutorMixin",
 		"NoiseBasedChunkGeneratorMixin",
+		"StrongholdStructureMixin",
 		"StructurePaletteMixin",
 		"SynchedEntityDataAccessor"
 	],

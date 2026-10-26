@@ -552,7 +552,7 @@ final class LodGenerator {
                 Progress progress = this.progressOf(viewer);
                 String rings = ringStatus(progress.terrain.shownRing, this.config.radius);
                 if (this.config.terrainFirst) {
-                    rings = "terrain " + rings + ", details " + ringStatus(progress.details.shownRing, this.config.featureRadius);
+                    rings = "terrain " + rings + ", details " + ringStatus(progress.details.shownRing, this.featureRadius());
                 }
                 if (viewer.focusRadius > 0) {
                     rings += ", map at " + viewer.focusX * 16 + ", " + viewer.focusZ * 16 + " " + ringStatus(progress.focus.shownRing, viewer.focusRadius);
@@ -606,7 +606,7 @@ final class LodGenerator {
                         .append(LodChat.progress(progress.terrain.shownRing, this.config.radius));
                 if (this.config.terrainFirst) {
                     text.append(LodChat.newLine()).append(LodChat.label("  Details  "))
-                            .append(LodChat.progress(progress.details.shownRing, this.config.featureRadius));
+                            .append(LodChat.progress(progress.details.shownRing, this.featureRadius()));
                 }
                 if (viewer.focusRadius > 0) {
                     text.append(LodChat.newLine()).append(LodChat.label("  3D map  "))
@@ -783,6 +783,11 @@ final class LodGenerator {
         return this.threads() * 2;
     }
 
+    /** Details reach no further than the LODs themselves, also when featureRadius is set larger than radius */
+    private int featureRadius() {
+        return Math.min(this.config.featureRadius, this.config.radius);
+    }
+
     // While the game is paused it needs no CPU time, so more workers can run
     private int threads() {
         if (this.server.isPaused()) {
@@ -911,13 +916,13 @@ final class LodGenerator {
         }
         while (true) {
             boolean terrainDone = progress.terrain.ring > this.config.radius;
-            boolean detailsDone = progress.details.ring > this.config.featureRadius;
+            boolean detailsDone = progress.details.ring > this.featureRadius();
             if (terrainDone && detailsDone) {
                 return false;
             }
             boolean details = terrainDone || !detailsDone && 2 * progress.details.ring <= progress.terrain.ring;
             Cursor cursor = details ? progress.details : progress.terrain;
-            int limit = details ? this.config.featureRadius : this.config.radius;
+            int limit = details ? this.featureRadius() : this.config.radius;
             if (this.walk(viewer, progress, cursor, progress.centerX, progress.centerZ, limit, details)) {
                 return true;
             }
@@ -973,7 +978,7 @@ final class LodGenerator {
             }
             long key = pack(chunkX, chunkZ);
             // Around the 3D map only terrain: it is about seeing far quickly, the details follow near the player
-            boolean features = onlyDetails || cursor != progress.focus && !this.config.terrainFirst && ring <= this.config.featureRadius;
+            boolean features = onlyDetails || cursor != progress.focus && !this.config.terrainFirst && ring <= this.featureRadius();
             int savedAt = dimension.saved.savedAt(chunkX, chunkZ);
             if (savedAt != 0) {
                 // A real chunk: its LOD comes from the save, with the players' builds, never from generated terrain.
