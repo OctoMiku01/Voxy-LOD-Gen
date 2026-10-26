@@ -11,7 +11,7 @@ import org.jetbrains.annotations.Nullable;
  * Hands LODs straight to Voxy in this game instance: for the player hosting a single player world, whose client runs
  * in the same process as the server. Only loaded when Voxy is installed.
  */
-final class VoxySink implements LodSink {
+public final class VoxySink implements LodSink {
     private final WorldIdentifier world;
 
     private VoxySink(WorldIdentifier world) {
@@ -19,7 +19,7 @@ final class VoxySink implements LodSink {
     }
 
     /** Sections Voxy was given but has not taken in yet; they wait in memory */
-    static int backlog() {
+    public static int backlog() {
         VoxyInstance instance = VoxyCommon.getInstance();
         return instance == null ? 0 : instance.getIngestService().getTaskCount();
     }

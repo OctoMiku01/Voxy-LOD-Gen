@@ -24,7 +24,8 @@ final class LodConfig {
     /** Worker threads with the CUSTOM performance while the game is paused (single player menu): it needs no CPU time then */
     int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
     /** Beyond the radius, up to this distance (in chunks), rough LODs show the horizon: only the height and the
-     *  biome of the ground, far cheaper than real ones. Only for the player hosting the game; 0 turns it off */
+     *  biome of the ground, far cheaper than real ones. Other players with this mod get it too (see
+     *  maxHorizonChunksPerSecondPerPlayer); 0 turns it off */
     int horizonRadius = 0;
     /** While the server's ticks take longer than this (milliseconds, 50 is the budget of a tick), only one worker
      *  runs; 0 turns this off */
@@ -54,6 +55,8 @@ final class LodConfig {
     int mapRadius = 1024;
     /** Per player that gets LODs over the network; about 20 KiB each before the connection compresses them */
     int maxChunksPerSecondPerPlayer = 20;
+    /** The horizon per player that gets it over the network; a few dozen bytes per chunk, their client builds it */
+    int maxHorizonChunksPerSecondPerPlayer = 500;
     /** Ask GitHub at each start whether a newer version exists */
     boolean checkForUpdates = true;
     /** Seconds after joining a world before the update message shows, so it comes after the messages of joining */
@@ -116,6 +119,7 @@ final class LodConfig {
         this.mapRadius = Math.max(0, this.mapRadius);
         this.tileSize = Math.clamp(this.tileSize, 1, 32);
         this.maxChunksPerSecondPerPlayer = Math.max(1, this.maxChunksPerSecondPerPlayer);
+        this.maxHorizonChunksPerSecondPerPlayer = Math.max(1, this.maxHorizonChunksPerSecondPerPlayer);
         this.updateMessageDelay = Math.clamp(this.updateMessageDelay, 0, 60);
     }
 }

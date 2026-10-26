@@ -30,6 +30,7 @@ public class LodGen implements ModInitializer {
     public void onInitialize() {
         UpdateCheck.start();
         PayloadTypeRegistry.clientboundPlay().register(LodChunkPayload.TYPE, LodChunkPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(LodHorizonPayload.TYPE, LodHorizonPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarEntitiesPayload.TYPE, FarEntitiesPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(MapPlayersPayload.TYPE, MapPlayersPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(MapFocusPayload.TYPE, MapFocusPayload.CODEC);

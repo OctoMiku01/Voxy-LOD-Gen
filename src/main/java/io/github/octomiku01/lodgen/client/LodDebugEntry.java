@@ -45,7 +45,10 @@ final class LodDebugEntry implements DebugScreenEntry {
             displayer.addLine(hosted);
         } else if (FabricLoader.getInstance().isModLoaded("voxy") && Minecraft.getInstance().getConnection() != null) {
             int pending = ClientLodReceiver.pending();
-            displayer.addLine("LOD Gen: " + ClientLodReceiver.received() + " LODs received" + (pending > 0 ? ", " + pending + " waiting for Voxy" : ""));
+            int horizon = ClientHorizonReceiver.built();
+            int horizonWaiting = ClientHorizonReceiver.waiting();
+            displayer.addLine("LOD Gen: " + ClientLodReceiver.received() + " LODs received" + (pending > 0 ? ", " + pending + " waiting for Voxy" : "")
+                    + (horizon > 0 || horizonWaiting > 0 ? ", horizon " + horizon + (horizonWaiting > 0 ? " (" + horizonWaiting + " to build)" : "") : ""));
         }
     }
 }

@@ -43,7 +43,7 @@ public final class LodChunk {
         this.blockLight = blockLight;
     }
 
-    void forEachSection(SectionConsumer consumer) {
+    public void forEachSection(SectionConsumer consumer) {
         for (int i = 0; i < this.sections.length; i++) {
             consumer.accept(this.minSectionY + i, this.sections[i], this.skyLight[i], this.blockLight[i]);
         }

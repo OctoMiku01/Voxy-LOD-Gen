@@ -72,7 +72,7 @@ created on first start:
 |---|---|---|
 | `radius` | 256 | How far LODs reach, in chunks |
 | `featureRadius` | 256 | Up to here LODs get features and structures, further away only terrain |
-| `horizonRadius` | 0 | Beyond `radius`, up to here (in chunks), rough LODs show the horizon for the player hosting the game: only the height and biome of the ground, far cheaper than real LODs, replaced by them when they come; 0 turns it off. Experimental |
+| `horizonRadius` | 0 | Beyond `radius`, up to here (in chunks), rough LODs show the horizon: only the height and biome of the ground, far cheaper than real LODs, replaced by them when they come. Taken once per world (`lodgen/samples/`); other players with this mod get only these samples and their client builds the LODs; 0 turns it off. Experimental |
 | `mapRadius` | 1024 | How far from you the 3D map may lead generation to where it looks, in chunks; 0 turns it off |
 | `terrainFirst` | true | First terrain quickly up to the radius, then the details follow, closest first |
 | `structures` | true | Structures in LODs |
@@ -87,6 +87,7 @@ created on first start:
 | `sendToPlayers` | true | Send LODs to other players |
 | `farPlayers` | true | Show other players beyond the view distance on the LODs, with what they ride |
 | `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
+| `maxHorizonChunksPerSecondPerPlayer` | 500 | Network limit per player for the horizon, a few dozen bytes per chunk |
 | `checkForUpdates` | true | Ask GitHub at each start whether a newer version exists and say so in chat |
 | `updateMessageDelay` | 10 | Seconds after joining a world before the update message shows |
 

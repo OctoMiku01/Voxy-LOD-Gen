@@ -62,6 +62,8 @@ public final class LodConfigScreen extends OptionsSubScreen {
     private final OptionInstance<Boolean> farPlayers = this.toggle("farPlayers", this.config.farPlayers);
     private final OptionInstance<Integer> maxChunksPerSecondPerPlayer = this.slider("maxChunksPerSecondPerPlayer",
             this.config.maxChunksPerSecondPerPlayer, 1, 1000, null);
+    private final OptionInstance<Integer> maxHorizonChunksPerSecondPerPlayer = this.slider("maxHorizonChunksPerSecondPerPlayer",
+            Math.min(this.config.maxHorizonChunksPerSecondPerPlayer, 5000), 1, 5000, null);
 
     private final OptionInstance<Boolean> checkForUpdates = this.toggle("checkForUpdates", this.config.checkForUpdates);
     private final OptionInstance<Integer> updateMessageDelay = this.slider("updateMessageDelay", this.config.updateMessageDelay, 0, 60,
@@ -139,6 +141,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
             case 2 -> {
                 this.list.addSmall(this.sendToPlayers, this.farPlayers);
                 this.list.addBig(this.maxChunksPerSecondPerPlayer);
+                this.list.addBig(this.maxHorizonChunksPerSecondPerPlayer);
             }
             default -> {
                 this.list.addBig(this.checkForUpdates);
@@ -184,6 +187,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 this.sendToPlayers.set(defaults.sendToPlayers);
                 this.farPlayers.set(defaults.farPlayers);
                 this.maxChunksPerSecondPerPlayer.set(defaults.maxChunksPerSecondPerPlayer);
+                this.maxHorizonChunksPerSecondPerPlayer.set(defaults.maxHorizonChunksPerSecondPerPlayer);
             }
             default -> {
                 this.checkForUpdates.set(defaults.checkForUpdates);
@@ -253,6 +257,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.config.sendToPlayers = this.sendToPlayers.get();
         this.config.farPlayers = this.farPlayers.get();
         this.config.maxChunksPerSecondPerPlayer = this.maxChunksPerSecondPerPlayer.get();
+        this.config.maxHorizonChunksPerSecondPerPlayer = this.maxHorizonChunksPerSecondPerPlayer.get();
         this.config.checkForUpdates = this.checkForUpdates.get();
         this.config.updateMessageDelay = this.updateMessageDelay.get();
         this.config.save();
