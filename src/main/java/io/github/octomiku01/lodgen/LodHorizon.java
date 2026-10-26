@@ -29,6 +29,8 @@ final class LodHorizon {
     private static final long STATS_INTERVAL_MILLIS = 30_000;
     /** Rough LODs are built far faster than Voxy takes them in: above this many waiting sections, the horizon waits */
     private static final int MAX_VOXY_BACKLOG = 10_000;
+    /** Ground heights at grid corners kept for the neighbouring chunks, which share them; a few rings' worth */
+    private static final int HEIGHT_CACHE = 200_000;
 
     /** Where the host is, published by the generator */
     record Spot(ServerLevel level, int chunkX, int chunkZ) {
@@ -41,6 +43,7 @@ final class LodHorizon {
     private final LodGenerator generator;
     private final LodConfig config;
     private final int fromRing;
+    private final int radius;
     private final int toRing;
     private final List<Thread> threads = new ArrayList<>();
     private volatile boolean running = true;
@@ -59,12 +62,17 @@ final class LodHorizon {
     /** Per dimension: chunks done since the world was opened */
     private final Map<ResourceKey<Level>, LongOpenHashSet> done = new HashMap<>();
     private final Map<ResourceKey<Level>, SavedChunks> saved = new HashMap<>();
+    /** Per dimension, shared by all threads, see {@link LodHorizonBuilder} */
+    private final Map<ResourceKey<Level>, ChunkCache<Integer>> heights = new HashMap<>();
     // Builders are per thread, see run
 
     LodHorizon(LodGenerator generator, LodConfig config) {
         this.generator = generator;
         this.config = config;
-        this.fromRing = config.radius + 1;
+        // The generation fills a circle of the radius on square rings: the horizon starts where the circle leaves the
+        // rings, so the corners between them are filled too, and leaves the circle to the generation
+        this.fromRing = (int) (config.radius / Math.sqrt(2));
+        this.radius = config.radius;
         this.toRing = config.horizonRadius;
         this.ring = this.fromRing;
         // Half of the generation's threads: the real LODs around the player come first
@@ -75,7 +83,7 @@ final class LodHorizon {
             this.threads.add(thread);
             thread.start();
         }
-        LodGen.LOGGER.info("Horizon from {} up to {} chunks away with {} threads", this.fromRing, this.toRing, count);
+        LodGen.LOGGER.info("Horizon from {} up to {} chunks away with {} threads", this.radius, this.toRing, count);
     }
 
     void stop() {
@@ -119,7 +127,7 @@ final class LodHorizon {
                     lod = real.computeIfAbsent(key, k -> LodChunkBuilder.create(job.level, this.config.structures, this.config.keepUnderground))
                             .fromSaved(new ChunkPos(job.x, job.z));
                 } else {
-                    lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(job.level)).build(job.x, job.z, job.step);
+                    lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(job.level, this.heightsOf(key))).build(job.x, job.z, job.step);
                 }
                 while (lod != null && this.running && !job.sink.accept(lod)) {
                     // Voxy is not ready yet, e.g. right after joining
@@ -141,7 +149,8 @@ final class LodHorizon {
     private synchronized @Nullable Job next() {
         this.logStats();
         @Nullable Spot spot = this.generator.hostSpot();
-        String waiting = spot == null ? "no host" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down" : null;
+        String waiting = spot == null ? "no host" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down"
+                : !this.generator.hostCaughtUp() ? "real LODs first" : null;
         if (waiting != null) {
             if (!waiting.equals(this.lastWaiting)) {
                 LodGen.LOGGER.info("Horizon waits: {}", waiting);
@@ -182,18 +191,20 @@ final class LodHorizon {
                 x = this.centerX - this.ring;
                 z = this.centerZ + this.ring - (i - 3 * side);
             }
-            int currentRing = this.ring;
             if (++this.index >= 4 * side) {
                 this.index = 0;
                 this.ring++;
             }
+            long dx = x - this.centerX;
+            long dz = z - this.centerZ;
+            long distanceSquared = dx * dx + dz * dz;
             long chunk = LodGenerator.pack(x, z);
-            if (dimensionDone.contains(chunk) || this.generator.hostHas(spot.level(), chunk)) {
+            if (distanceSquared <= (long) this.radius * this.radius || dimensionDone.contains(chunk) || this.generator.hostHas(spot.level(), chunk)) {
                 continue;
             }
             // Finer close to the radius, where the rough LODs meet the real ones; Voxy shows coarser detail further away
-            int radius = Math.max(1, this.fromRing - 1);
-            int step = currentRing <= 2 * radius ? 4 : currentRing <= 4 * radius ? 8 : 16;
+            long radius = Math.max(1, this.radius);
+            int step = distanceSquared <= 4 * radius * radius ? 4 : distanceSquared <= 16 * radius * radius ? 8 : 16;
             return new Job(spot.level(), x, z, step, dimensionDone, this.sink);
         }
         return null;
@@ -211,6 +222,12 @@ final class LodHorizon {
         }
         this.lastStats = now;
         this.builtAtLastStats = total;
+    }
+
+    private ChunkCache<Integer> heightsOf(ResourceKey<Level> dimension) {
+        synchronized (this.heights) {
+            return this.heights.computeIfAbsent(dimension, k -> new ChunkCache<>(HEIGHT_CACHE));
+        }
     }
 
     private SavedChunks savedOf(ServerLevel level) {
