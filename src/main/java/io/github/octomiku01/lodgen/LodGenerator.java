@@ -472,6 +472,22 @@ final class LodGenerator {
         return this.throttled;
     }
 
+    /**
+     * Whether the host has all real LODs around them, terrain and details, and nothing is being built: the horizon
+     * only comes after that. Moving on starts new rings, and the horizon waits again.
+     */
+    boolean hostCaughtUp() {
+        for (Viewer viewer : this.viewers) {
+            if (viewer.host) {
+                Progress progress = this.progressOf(viewer);
+                boolean terrain = progress.terrain.shownRing > this.config.radius;
+                boolean details = !this.config.terrainFirst || progress.details.shownRing > this.config.featureRadius;
+                return terrain && details && this.inFlight.get() == 0;
+            }
+        }
+        return false;
+    }
+
     static long pack(int x, int z) {
         return (long) x & 0xFFFFFFFFL | ((long) z & 0xFFFFFFFFL) << 32;
     }

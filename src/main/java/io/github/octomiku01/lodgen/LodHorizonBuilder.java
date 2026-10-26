@@ -17,10 +17,12 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.RandomState;
 
 /**
- * Rough LODs for the horizon beyond the radius: no world generation, only the height of the ground every few blocks
- * (from the generator's noise, by far the most of the cost) and the biome there. The columns get stone, a filler and a top block that fits the
- * biome, water up to the sea level, and a layer of leaves where forests grow. Far cheaper than a real LOD, and
- * replaced by one as soon as it is built. One builder per thread.
+ * Rough LODs for the horizon beyond the radius: no world generation, only the height of the ground at the corners of a
+ * grid (from the generator's noise, by far the most of the cost) and the biome there. Between the corners the height
+ * is interpolated block by block, so the ground forms slopes instead of flat squares with walls between them, and
+ * neighbouring chunks meet without a seam. The columns get stone, a filler and a top block that fits the biome, water
+ * up to the sea level, and a layer of leaves where forests grow. Far cheaper than a real LOD, and replaced by one as
+ * soon as it is built. One builder per thread; the heights are shared through a cache.
  */
 final class LodHorizonBuilder {
     /** How deep the filler (dirt, sand...) reaches below the top block */
@@ -30,105 +32,151 @@ final class LodHorizonBuilder {
     private final ChunkGenerator generator;
     private final RandomState randomState;
     private final BiomeResolver biomes;
+    /** Height of the ground at grid corners, by block position; shared by the builders of all threads */
+    private final ChunkCache<Integer> heights;
     private final int seaLevel;
     private final int minY;
 
-    LodHorizonBuilder(ServerLevel level) {
+    LodHorizonBuilder(ServerLevel level, ChunkCache<Integer> heights) {
         this.level = level;
         this.generator = level.getChunkSource().getGenerator();
         this.randomState = level.getChunkSource().randomState();
         this.biomes = this.generator.getBiomeSource().createUncachedResolver(this.randomState);
+        this.heights = heights;
         this.seaLevel = this.generator.getSeaLevel();
         this.minY = level.getMinY();
     }
 
-    /** What a sampled square looks like */
-    private record Column(int ground, BlockState top, BlockState filler, boolean canopy, BlockState leaves, boolean frozen) {
+    /** The blocks of the ground around a grid corner */
+    private record Ground(BlockState top, BlockState filler, BlockState underwater, boolean canopy, BlockState leaves, boolean frozen) {
     }
 
     /**
-     * @param step blocks between height samples (4, 8 or 16); each sample stands for a square of this size. Further
-     *             away the squares can be larger: Voxy shows coarser detail there anyway
+     * @param step blocks between the grid corners (4, 8 or 16). Further away the grid can be coarser: Voxy shows
+     *             coarser detail there anyway
      */
     LodChunk build(int chunkX, int chunkZ, int step) {
-        int samples = 16 / step;
-        Column[] columns = new Column[samples * samples];
+        int corners = 16 / step + 1;
+        int[] cornerHeight = new int[corners * corners];
+        Ground[] cornerGround = new Ground[corners * corners];
+        for (int i = 0; i < corners; i++) {
+            for (int j = 0; j < corners; j++) {
+                int x = chunkX * 16 + i * step;
+                int z = chunkZ * 16 + j * step;
+                // The first block above the solid ground, below water if there is some
+                int height = this.heights.get(LodGenerator.pack(x, z),
+                        key -> this.generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, this.level, this.randomState));
+                cornerHeight[i * corners + j] = height;
+                cornerGround[i * corners + j] = this.ground(x, z, height);
+            }
+        }
+
+        // Each block column: its height interpolated between the four corners around it, its blocks from the nearest
+        int[] ground = new int[256];
+        Ground[] kind = new Ground[256];
         int lowest = Integer.MAX_VALUE;
         int highest = Integer.MIN_VALUE;
-        for (int sx = 0; sx < samples; sx++) {
-            for (int sz = 0; sz < samples; sz++) {
-                int x = chunkX * 16 + sx * step + step / 2;
-                int z = chunkZ * 16 + sz * step + step / 2;
-                // The first block above the solid ground, below water if there is some
-                int ground = this.generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, this.level, this.randomState);
-                Column column = this.column(x, z, ground);
-                columns[sx * samples + sz] = column;
-                lowest = Math.min(lowest, ground);
-                highest = Math.max(highest, column.canopy ? ground + 6 : ground);
+        for (int bx = 0; bx < 16; bx++) {
+            int i = bx / step;
+            float fx = (bx % step) / (float) step;
+            for (int bz = 0; bz < 16; bz++) {
+                int j = bz / step;
+                float fz = (bz % step) / (float) step;
+                float top = cornerHeight[i * corners + j] * (1 - fx) + cornerHeight[(i + 1) * corners + j] * fx;
+                float bottom = cornerHeight[i * corners + j + 1] * (1 - fx) + cornerHeight[(i + 1) * corners + j + 1] * fx;
+                int height = Math.round(top * (1 - fz) + bottom * fz);
+                Ground near = cornerGround[(i + Math.round(fx)) * corners + j + Math.round(fz)];
+                ground[bx * 16 + bz] = height;
+                kind[bx * 16 + bz] = near;
+                lowest = Math.min(lowest, height);
+                highest = Math.max(highest, near.canopy ? height + 6 : height);
             }
         }
         highest = Math.max(highest, this.seaLevel);
-        // From one section below the lowest ground (the floor seen through water and cliffs) to the highest block
+
+        // From one section below the lowest ground (the floor seen through water) to the highest block
         int minSection = Math.max(this.level.getMinSectionY(), (lowest >> 4) - 1);
         int maxSection = Math.min(this.level.getMaxSectionY(), highest >> 4);
         int count = maxSection - minSection + 1;
         LevelChunkSection[] sections = new LevelChunkSection[count];
         DataLayer[] skyLight = new DataLayer[count];
         DataLayer[] blockLight = new DataLayer[count];
-        for (int i = 0; i < count; i++) {
-            int sectionY = minSection + i;
+        for (int s = 0; s < count; s++) {
+            int sectionY = minSection + s;
             LevelChunkSection section = new LevelChunkSection(this.level.palettedContainerFactory());
             DataLayer light = new DataLayer();
-            for (int sx = 0; sx < samples; sx++) {
-                for (int sz = 0; sz < samples; sz++) {
-                    Column column = columns[sx * samples + sz];
+            for (int bx = 0; bx < 16; bx++) {
+                for (int bz = 0; bz < 16; bz++) {
+                    int height = ground[bx * 16 + bz];
+                    Ground near = kind[bx * 16 + bz];
+                    int crown = near.canopy ? crown(chunkX * 16 + bx, chunkZ * 16 + bz) : 0;
                     for (int dy = 0; dy < 16; dy++) {
                         int y = (sectionY << 4) + dy;
-                        BlockState state = this.blockAt(column, y, Math.floorDiv(chunkX * 16, step) + sx, Math.floorDiv(chunkZ * 16, step) + sz);
-                        int sky = y >= column.ground ? 15 : 0;
-                        for (int bx = sx * step; bx < sx * step + step; bx++) {
-                            for (int bz = sz * step; bz < sz * step + step; bz++) {
-                                if (!state.isAir()) {
-                                    section.setBlockState(bx, dy, bz, state, false);
-                                }
-                                light.set(bx, dy, bz, sky);
-                            }
+                        BlockState state = this.blockAt(near, height, crown, y);
+                        if (!state.isAir()) {
+                            section.setBlockState(bx, dy, bz, state, false);
                         }
+                        light.set(bx, dy, bz, y >= height ? 15 : 0);
                     }
                 }
             }
-            sections[i] = section;
-            skyLight[i] = light;
+            sections[s] = section;
+            skyLight[s] = light;
         }
         return new LodChunk(chunkX, chunkZ, minSection, sections, skyLight, blockLight);
     }
 
-    /** @param squareX which square along x it is, counted in squares of the sampling step; likewise squareZ */
-    private BlockState blockAt(Column column, int y, int squareX, int squareZ) {
-        int ground = column.ground;
-        if (y < ground - 1 - FILLER_DEPTH) {
+    /**
+     * Rough trees for forests: in each 4 x 4 square of blocks, a tree with a 3 x 3 crown stands at a spot and height
+     * that depend on where the square is, so forests look uneven but are the same every time.
+     *
+     * @return 0 without leaves on this column, else the crown's distance above the ground (low 4 bits) and its
+     *         thickness (above)
+     */
+    private static int crown(int x, int z) {
+        long hash = (long) (x >> 2) * 0x9E3779B97F4A7C15L ^ (long) (z >> 2) * 0xC2B2AE3D27D4EB4FL;
+        hash ^= hash >>> 29;
+        hash *= 0xBF58476D1CE4E5B9L;
+        hash ^= hash >>> 32;
+        if ((hash & 0xFF) >= 150) {
+            return 0;
+        }
+        int offsetX = (int) (hash >>> 8 & 1);
+        int offsetZ = (int) (hash >>> 9 & 1);
+        int localX = (x & 3) - offsetX;
+        int localZ = (z & 3) - offsetZ;
+        if (localX < 0 || localX > 2 || localZ < 0 || localZ > 2) {
+            return 0;
+        }
+        int above = 3 + (int) (hash >>> 10 & 1);
+        int thickness = 2 + (int) (hash >>> 11 & 1);
+        return above | thickness << 4;
+    }
+
+    /** @param crown the rough tree on this column, see {@link #crown} */
+    private BlockState blockAt(Ground near, int height, int crown, int y) {
+        boolean underwater = height < this.seaLevel;
+        if (y < height - 1 - FILLER_DEPTH) {
             return y < 0 ? Blocks.DEEPSLATE.defaultBlockState() : Blocks.STONE.defaultBlockState();
         }
-        if (y < ground - 1) {
-            return column.filler;
+        if (y < height - 1) {
+            return underwater ? near.underwater : near.filler;
         }
-        if (y == ground - 1) {
-            return column.top;
+        if (y == height - 1) {
+            return underwater ? near.underwater : near.top;
         }
         if (y < this.seaLevel) {
-            return column.frozen && y == this.seaLevel - 1 ? Blocks.ICE.defaultBlockState() : Blocks.WATER.defaultBlockState();
+            return near.frozen && y == this.seaLevel - 1 ? Blocks.ICE.defaultBlockState() : Blocks.WATER.defaultBlockState();
         }
-        // Trees as a rough canopy on about half of the squares, so forests look darker than plains
-        if (column.canopy && ground >= this.seaLevel && y >= ground + 3 && y <= ground + 5 && ((squareX ^ squareZ) & 1) == 0) {
-            return column.leaves;
+        if (crown != 0 && !underwater && y >= height + (crown & 15) && y < height + (crown & 15) + (crown >> 4)) {
+            return near.leaves;
         }
         return Blocks.AIR.defaultBlockState();
     }
 
-    private Column column(int x, int z, int ground) {
-        int surface = Math.max(ground, this.minY);
+    private Ground ground(int x, int z, int height) {
+        int surface = Math.max(height, this.minY);
         Holder<Biome> biome = this.biomes.getNoiseBiome(QuartPos.fromBlock(x), QuartPos.fromBlock(surface), QuartPos.fromBlock(z));
-        boolean underwater = ground < this.seaLevel;
         boolean snowy = biome.value().coldEnoughToSnow(new BlockPos(x, Math.max(surface, this.seaLevel), z), this.seaLevel);
         BlockState top;
         BlockState filler = Blocks.DIRT.defaultBlockState();
@@ -138,22 +186,21 @@ final class LodHorizonBuilder {
         } else if (biome.is(Biomes.DESERT) || biome.is(BiomeTags.IS_BEACH) && !snowy) {
             top = Blocks.SAND.defaultBlockState();
             filler = Blocks.SANDSTONE.defaultBlockState();
-        } else if (underwater) {
-            top = biome.is(BiomeTags.IS_DEEP_OCEAN) ? Blocks.GRAVEL.defaultBlockState() : Blocks.SAND.defaultBlockState();
         } else if (snowy) {
             top = Blocks.SNOW_BLOCK.defaultBlockState();
         } else if (biome.is(Biomes.MUSHROOM_FIELDS)) {
             top = Blocks.MYCELIUM.defaultBlockState();
-        } else if (biome.is(BiomeTags.IS_MOUNTAIN) && ground > this.seaLevel + 100) {
+        } else if (biome.is(BiomeTags.IS_MOUNTAIN) && height > this.seaLevel + 100) {
             top = Blocks.STONE.defaultBlockState();
             filler = Blocks.STONE.defaultBlockState();
         } else {
             top = Blocks.GRASS_BLOCK.defaultBlockState();
         }
-        boolean canopy = !underwater && (biome.is(BiomeTags.IS_FOREST) || biome.is(BiomeTags.IS_TAIGA) || biome.is(BiomeTags.IS_JUNGLE));
+        BlockState underwater = biome.is(BiomeTags.IS_DEEP_OCEAN) ? Blocks.GRAVEL.defaultBlockState() : Blocks.SAND.defaultBlockState();
+        boolean canopy = biome.is(BiomeTags.IS_FOREST) || biome.is(BiomeTags.IS_TAIGA) || biome.is(BiomeTags.IS_JUNGLE);
         BlockState leaves = biome.is(BiomeTags.IS_TAIGA) ? Blocks.SPRUCE_LEAVES.defaultBlockState()
                 : biome.is(BiomeTags.IS_JUNGLE) ? Blocks.JUNGLE_LEAVES.defaultBlockState()
                 : Blocks.OAK_LEAVES.defaultBlockState();
-        return new Column(ground, top, filler, canopy, leaves, snowy && underwater);
+        return new Ground(top, filler, underwater, canopy, leaves, snowy);
     }
 }
