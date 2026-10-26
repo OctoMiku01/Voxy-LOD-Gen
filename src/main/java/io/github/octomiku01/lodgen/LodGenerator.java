@@ -509,6 +509,10 @@ final class LodGenerator {
         if (this.horizon != null) {
             List<LodHorizon.Target> targets = new ArrayList<>();
             for (Viewer viewer : current) {
+                // Under a ceiling (the Nether) the ground cannot be found from above, and the fog hides the distance
+                if (viewer.level.dimensionType().hasCeiling()) {
+                    continue;
+                }
                 if (viewer.host || viewer.player != null && ServerPlayNetworking.canSend(viewer.player, LodHorizonPayload.TYPE)) {
                     targets.add(horizonTarget(viewer));
                 }
