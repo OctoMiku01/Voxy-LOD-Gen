@@ -93,6 +93,7 @@ final class LodHorizon {
     private final Map<ResourceKey<Level>, SavedChunks> saved = new HashMap<>();
     /** Per dimension, shared by all threads, see {@link LodHorizonBuilder} */
     private final Map<ResourceKey<Level>, ChunkCache<Integer>> heights = new HashMap<>();
+    private final Map<ResourceKey<Level>, LodHorizonBuilder.Estimate> estimates = new HashMap<>();
     // Builders are per thread, see run
 
     LodHorizon(LodGenerator generator, LodConfig config) {
@@ -172,7 +173,7 @@ final class LodHorizon {
                     lod = real.computeIfAbsent(key, k -> LodChunkBuilder.create(job.level, this.config.structures, this.config.keepUnderground))
                             .fromSaved(new ChunkPos(job.x, job.z));
                 } else {
-                    lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(job.level, this.heightsOf(key))).build(job.x, job.z, job.step);
+                    lod = rough.computeIfAbsent(key, k -> new LodHorizonBuilder(job.level, this.heightsOf(key), this.estimateOf(key))).build(job.x, job.z, job.step);
                 }
                 while (lod != null && this.running && !job.sink.accept(lod)) {
                     // Voxy is not ready yet, e.g. right after joining
@@ -340,6 +341,12 @@ final class LodHorizon {
             }
         }
         this.unsaved.clear();
+    }
+
+    private LodHorizonBuilder.Estimate estimateOf(ResourceKey<Level> dimension) {
+        synchronized (this.estimates) {
+            return this.estimates.computeIfAbsent(dimension, k -> new LodHorizonBuilder.Estimate());
+        }
     }
 
     private ChunkCache<Integer> heightsOf(ResourceKey<Level> dimension) {

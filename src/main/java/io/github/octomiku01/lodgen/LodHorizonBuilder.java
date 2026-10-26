@@ -13,6 +13,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.levelgen.DensityFunction;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.RandomState;
 
@@ -34,17 +35,76 @@ final class LodHorizonBuilder {
     private final BiomeSource biomes;
     /** Height of the ground at grid corners, by block position; shared by the builders of all threads */
     private final ChunkCache<Integer> heights;
+    /** Vanilla's quick guess of the surface height, see {@link Estimate} */
+    private final DensityFunction quickSurface;
+    private final Estimate estimate;
     private final int seaLevel;
     private final int minY;
 
-    LodHorizonBuilder(ServerLevel level, ChunkCache<Integer> heights) {
+    LodHorizonBuilder(ServerLevel level, ChunkCache<Integer> heights, Estimate estimate) {
         this.level = level;
         this.generator = level.getChunkSource().getGenerator();
         this.randomState = level.getChunkSource().randomState();
         this.biomes = this.generator.getBiomeSource();
         this.heights = heights;
+        this.quickSurface = this.randomState.router().preliminarySurfaceLevel();
+        this.estimate = estimate;
         this.seaLevel = this.generator.getSeaLevel();
         this.minY = level.getMinY();
+    }
+
+    /**
+     * On 26.2 the exact height of the ground (vanilla walks down the noise column) costs about 2 ms, a hundred times
+     * the quick guess vanilla uses to find the surface. That guess is off by a fairly steady amount, which depends on
+     * the world's noise settings (worldgen mods): it is learned where the exact height is needed anyway, close to the
+     * radius, and the corrected guess is used further away, where a few blocks do not show.
+     */
+    private int height(int x, int z, int step) {
+        if (step > 4) {
+            int offset = this.estimate.offset();
+            if (offset != Estimate.UNKNOWN) {
+                return this.quickSurface(x, z) + offset;
+            }
+        }
+        int exact = this.generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, this.level, this.randomState);
+        if (step == 4) {
+            this.estimate.learn(exact - this.quickSurface(x, z));
+        }
+        return exact;
+    }
+
+    private int quickSurface(int x, int z) {
+        return (int) Math.round(this.quickSurface.compute(new DensityFunction.SinglePointContext(x, 0, z)));
+    }
+
+    /**
+     * How far the quick guess of the surface is off from the exact height in one dimension, shared by all threads.
+     * Only used once enough samples agree; if the guess scatters too much (some generators), the exact height stays.
+     */
+    static final class Estimate {
+        static final int UNKNOWN = Integer.MIN_VALUE;
+        private static final int NEEDED = 200;
+        /** Standard deviation of the error, in blocks, up to which the guess is used */
+        private static final double MAX_SPREAD = 8;
+
+        private long count;
+        private double sum;
+        private double sumSquares;
+
+        synchronized void learn(int difference) {
+            this.count++;
+            this.sum += difference;
+            this.sumSquares += (double) difference * difference;
+        }
+
+        synchronized int offset() {
+            if (this.count < NEEDED) {
+                return UNKNOWN;
+            }
+            double mean = this.sum / this.count;
+            double spread = Math.sqrt(Math.max(0, this.sumSquares / this.count - mean * mean));
+            return spread <= MAX_SPREAD ? (int) Math.round(mean) : UNKNOWN;
+        }
     }
 
     /** The blocks of the ground around a grid corner */
@@ -64,8 +124,7 @@ final class LodHorizonBuilder {
                 int x = chunkX * 16 + i * step;
                 int z = chunkZ * 16 + j * step;
                 // The first block above the solid ground, below water if there is some
-                int height = this.heights.get(LodGenerator.pack(x, z),
-                        key -> this.generator.getBaseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG, this.level, this.randomState));
+                int height = this.heights.get(LodGenerator.pack(x, z), key -> this.height(x, z, step));
                 cornerHeight[i * corners + j] = height;
                 cornerGround[i * corners + j] = this.ground(x, z, height);
             }
