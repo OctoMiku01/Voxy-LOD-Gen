@@ -604,8 +604,8 @@ final class LodGenerator {
                 }
                 if (viewer.host && this.horizon != null) {
                     LodHorizon.Status horizon = this.horizon.status(viewer.level);
-                    rings += ", horizon " + ringStatus(horizon.ring(), horizon.toRing()) + " (" + horizon.done() + " LODs"
-                            + (horizon.waiting() != null ? ", waits: " + horizon.waiting() : "") + ")";
+                    rings += ", horizon " + ringStatus(horizon.ring(), horizon.toRing()) + " (" + horizon.done() + " LODs, "
+                            + String.format("%.0f/s", horizon.rate()) + (horizon.waiting() != null ? ", waits: " + horizon.waiting() : "") + ")";
                 }
                 text.append(String.format("; %s in %s: %s, %d LOD chunks", viewer.name, viewer.level.dimension().identifier(),
                         rings, progress.doneCount()));
@@ -668,6 +668,8 @@ final class LodGenerator {
                     text.append(LodChat.newLine()).append(LodChat.label("  Horizon  ")).append(LodChat.progress(horizon.ring(), horizon.toRing()));
                     if (horizon.waiting() != null) {
                         text.append(Component.literal("  waits: " + horizon.waiting()).withStyle(ChatFormatting.YELLOW));
+                    } else if (horizon.ring() <= horizon.toRing()) {
+                        text.append(LodChat.separator()).append(LodChat.value(String.format("%.0f", horizon.rate()))).append(LodChat.label(" chunks/s"));
                     }
                 }
                 text.append(LodChat.newLine()).append(LodChat.label("  LOD chunks  ")).append(LodChat.value(progress.doneCount()));
