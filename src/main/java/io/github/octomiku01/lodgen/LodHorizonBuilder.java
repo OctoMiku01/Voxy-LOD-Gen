@@ -82,7 +82,8 @@ public final class LodHorizonBuilder {
                 }
             }
         }
-        highest = Math.max(highest, this.seaLevel);
+        // The sea can lie below the world (the Aether): then a chunk of only void still gets one empty section
+        highest = Math.max(highest, Math.max(this.seaLevel, none));
         lowest = Math.min(lowest, highest);
 
         // From one section below the lowest ground (the floor seen through water) to the highest block
