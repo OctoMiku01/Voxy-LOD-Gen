@@ -31,7 +31,7 @@ public final class LodHorizonBuilder {
     }
 
     /** The blocks of the ground around a grid corner */
-    private record Ground(BlockState top, BlockState filler, BlockState underwater, boolean canopy, BlockState leaves, boolean frozen) {
+    private record Ground(BlockState top, BlockState filler, BlockState underwater, boolean canopy, BlockState leaves, boolean frozen, boolean end) {
     }
 
     public LodChunk build(int chunkX, int chunkZ, HorizonSamples samples) {
@@ -47,6 +47,8 @@ public final class LodHorizonBuilder {
         }
 
         // Each block column: its height interpolated between the four corners around it, its blocks from the nearest
+        // A corner without ground (the void of the End) is at the bottom of the world
+        int none = this.level.getMinY();
         int[] ground = new int[256];
         Ground[] kind = new Ground[256];
         int lowest = Integer.MAX_VALUE;
@@ -57,17 +59,31 @@ public final class LodHorizonBuilder {
             for (int bz = 0; bz < 16; bz++) {
                 int j = bz / step;
                 float fz = (bz % step) / (float) step;
-                float top = cornerHeight[i * corners + j] * (1 - fx) + cornerHeight[(i + 1) * corners + j] * fx;
-                float bottom = cornerHeight[i * corners + j + 1] * (1 - fx) + cornerHeight[(i + 1) * corners + j + 1] * fx;
-                int height = Math.round(top * (1 - fz) + bottom * fz);
-                Ground near = cornerGround[(i + Math.round(fx)) * corners + j + Math.round(fz)];
+                int nearest = (i + Math.round(fx)) * corners + j + Math.round(fz);
+                int northWest = cornerHeight[i * corners + j];
+                int northEast = cornerHeight[(i + 1) * corners + j];
+                int southWest = cornerHeight[i * corners + j + 1];
+                int southEast = cornerHeight[(i + 1) * corners + j + 1];
+                int height;
+                if (Math.min(Math.min(northWest, northEast), Math.min(southWest, southEast)) <= none) {
+                    // At the edge of the void: no slope down into it, the ground ends where it is nearest
+                    height = cornerHeight[nearest];
+                } else {
+                    float top = northWest * (1 - fx) + northEast * fx;
+                    float bottom = southWest * (1 - fx) + southEast * fx;
+                    height = Math.round(top * (1 - fz) + bottom * fz);
+                }
+                Ground near = cornerGround[nearest];
                 ground[bx * 16 + bz] = height;
                 kind[bx * 16 + bz] = near;
-                lowest = Math.min(lowest, height);
-                highest = Math.max(highest, near.canopy ? height + 6 : height);
+                if (height > none) {
+                    lowest = Math.min(lowest, height);
+                    highest = Math.max(highest, near.canopy ? height + 6 : height);
+                }
             }
         }
         highest = Math.max(highest, this.seaLevel);
+        lowest = Math.min(lowest, highest);
 
         // From one section below the lowest ground (the floor seen through water) to the highest block
         int minSection = Math.max(this.level.getMinSectionY(), (lowest >> 4) - 1);
@@ -83,6 +99,13 @@ public final class LodHorizonBuilder {
             for (int bx = 0; bx < 16; bx++) {
                 for (int bz = 0; bz < 16; bz++) {
                     int height = ground[bx * 16 + bz];
+                    if (height <= none) {
+                        // The void: nothing, in full daylight
+                        for (int dy = 0; dy < 16; dy++) {
+                            light.set(bx, dy, bz, 15);
+                        }
+                        continue;
+                    }
                     Ground near = kind[bx * 16 + bz];
                     int crown = near.canopy ? crown(chunkX * 16 + bx, chunkZ * 16 + bz) : 0;
                     for (int dy = 0; dy < 16; dy++) {
@@ -132,7 +155,7 @@ public final class LodHorizonBuilder {
     private BlockState blockAt(Ground near, int height, int crown, int y) {
         boolean underwater = height < this.seaLevel;
         if (y < height - 1 - FILLER_DEPTH) {
-            return y < 0 ? Blocks.DEEPSLATE.defaultBlockState() : Blocks.STONE.defaultBlockState();
+            return near.end ? Blocks.END_STONE.defaultBlockState() : y < 0 ? Blocks.DEEPSLATE.defaultBlockState() : Blocks.STONE.defaultBlockState();
         }
         if (y < height - 1) {
             return underwater ? near.underwater : near.filler;
@@ -154,7 +177,10 @@ public final class LodHorizonBuilder {
         boolean snowy = biome.value().coldEnoughToSnow(new BlockPos(x, Math.max(surface, this.seaLevel), z), this.seaLevel);
         BlockState top;
         BlockState filler = Blocks.DIRT.defaultBlockState();
-        if (biome.is(BiomeTags.IS_BADLANDS)) {
+        if (biome.is(BiomeTags.IS_END)) {
+            top = Blocks.END_STONE.defaultBlockState();
+            filler = Blocks.END_STONE.defaultBlockState();
+        } else if (biome.is(BiomeTags.IS_BADLANDS)) {
             top = Blocks.RED_SAND.defaultBlockState();
             filler = Blocks.TERRACOTTA.defaultBlockState();
         } else if (biome.is(Biomes.DESERT) || biome.is(BiomeTags.IS_BEACH) && !snowy) {
@@ -175,6 +201,6 @@ public final class LodHorizonBuilder {
         BlockState leaves = biome.is(BiomeTags.IS_TAIGA) ? Blocks.SPRUCE_LEAVES.defaultBlockState()
                 : biome.is(BiomeTags.IS_JUNGLE) ? Blocks.JUNGLE_LEAVES.defaultBlockState()
                 : Blocks.OAK_LEAVES.defaultBlockState();
-        return new Ground(top, filler, underwater, canopy, leaves, snowy);
+        return new Ground(top, filler, underwater, canopy, leaves, snowy, biome.is(BiomeTags.IS_END));
     }
 }
