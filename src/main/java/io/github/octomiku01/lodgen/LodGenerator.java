@@ -63,6 +63,8 @@ final class LodGenerator {
     /** Moving this many chunks restarts the search at the player, so nearby gaps are filled first */
     private static final int RESCAN_DISTANCE = 8;
     private static final int MAX_LOGGED_ERRORS = 10;
+    /** No chunk handed out for this long counts as done, see {@link #idle} */
+    private static final long IDLE_MILLIS = 3_000;
     /** A generator other than the noise based one that fails this often before it ever worked is given up */
     private static final int MAX_FAILURES_OF_UNKNOWN_GENERATOR = 8;
     /** Players without a profile, e.g. the benchmark, share this id */
@@ -402,6 +404,8 @@ final class LodGenerator {
     private final boolean localVoxy;
     private final ThreadPoolExecutor workers;
     private final Thread scheduler;
+    /** When the last chunk was handed to the workers; the horizon waits until there is nothing left for a while */
+    private volatile long lastQueued = System.currentTimeMillis();
     /** Rough LODs beyond the radius for the host, if horizonRadius asks for them */
     private final @Nullable LodHorizon horizon;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
@@ -473,19 +477,12 @@ final class LodGenerator {
     }
 
     /**
-     * Whether the host has all real LODs around them, terrain and details, and nothing is being built: the horizon
-     * only comes after that. Moving on starts new rings, and the horizon waits again.
+     * Whether the generation has nothing left to do: nothing is being built, and no chunk was handed out for a few
+     * seconds. The horizon only comes after the real LODs; moving on starts new rings, and the horizon waits again.
+     * The rings shown in /lodgen are no good for this: they start again now and then to look for changed real chunks.
      */
-    boolean hostCaughtUp() {
-        for (Viewer viewer : this.viewers) {
-            if (viewer.host) {
-                Progress progress = this.progressOf(viewer);
-                boolean terrain = progress.terrain.shownRing > this.config.radius;
-                boolean details = !this.config.terrainFirst || progress.details.shownRing > this.config.featureRadius;
-                return terrain && details && this.inFlight.get() == 0;
-            }
-        }
-        return false;
+    boolean idle() {
+        return this.inFlight.get() == 0 && System.currentTimeMillis() - this.lastQueued > IDLE_MILLIS;
     }
 
     static long pack(int x, int z) {
@@ -605,6 +602,11 @@ final class LodGenerator {
                 if (viewer.focusRadius > 0) {
                     rings += ", map at " + viewer.focusX * 16 + ", " + viewer.focusZ * 16 + " " + ringStatus(progress.focus.shownRing, viewer.focusRadius);
                 }
+                if (viewer.host && this.horizon != null) {
+                    LodHorizon.Status horizon = this.horizon.status(viewer.level);
+                    rings += ", horizon " + ringStatus(horizon.ring(), horizon.toRing()) + " (" + horizon.done() + " LODs"
+                            + (horizon.waiting() != null ? ", waits: " + horizon.waiting() : "") + ")";
+                }
                 text.append(String.format("; %s in %s: %s, %d LOD chunks", viewer.name, viewer.level.dimension().identifier(),
                         rings, progress.doneCount()));
             }
@@ -661,7 +663,17 @@ final class LodGenerator {
                             .append(LodChat.progress(progress.focus.shownRing, viewer.focusRadius))
                             .append(LodChat.label(" at ")).append(LodChat.value(viewer.focusX * 16 + ", " + viewer.focusZ * 16));
                 }
+                if (viewer.host && this.horizon != null) {
+                    LodHorizon.Status horizon = this.horizon.status(viewer.level);
+                    text.append(LodChat.newLine()).append(LodChat.label("  Horizon  ")).append(LodChat.progress(horizon.ring(), horizon.toRing()));
+                    if (horizon.waiting() != null) {
+                        text.append(Component.literal("  waits: " + horizon.waiting()).withStyle(ChatFormatting.YELLOW));
+                    }
+                }
                 text.append(LodChat.newLine()).append(LodChat.label("  LOD chunks  ")).append(LodChat.value(progress.doneCount()));
+                if (viewer.host && this.horizon != null) {
+                    text.append(LodChat.separator()).append(LodChat.value(this.horizon.status(viewer.level).done())).append(LodChat.label(" horizon"));
+                }
             }
         } else if (asking != null) {
             text.append(LodChat.newLine()).append(Component.literal("You get no LODs: this mod or Voxy is missing on your client")
@@ -1064,6 +1076,7 @@ final class LodGenerator {
                 tasks.put(taskKey, task);
                 progress.tokens -= this.wanted(task, progress);
                 this.inFlight.incrementAndGet();
+                this.lastQueued = System.currentTimeMillis();
                 Task queued = task;
                 this.workers.execute(() -> this.build(dimension, queued, taskKey));
                 return true;
