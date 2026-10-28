@@ -400,13 +400,12 @@ public class MapScreen extends Screen {
         int y = (int) Math.round(screen[1]);
         int size = self ? 12 : 10;
         int color = self ? 0xFFFFC23B : 0xFF7DEBFF;
-        if (!Float.isNaN(yaw)) {
-            drawFacing(g, position, screen, yaw, size, color);
-        }
+        int arrowTop = Float.isNaN(yaw) ? 0 : drawFacing(g, position, screen, yaw, size, color);
         g.fill(x - size / 2 - 1, y - size / 2 - 1, x + size / 2 + 1, y + size / 2 + 1, color);
         PlayerFaceExtractor.extractRenderState(g, skin, x - size / 2, y - size / 2, size);
         int nameWidth = minecraft.font.width(name);
-        int nameY = y - size / 2 - 12;
+        // Above the arrow when it points up, so the name does not hide it
+        int nameY = Math.min(y - size / 2 - 12, y - arrowTop - 11);
         g.fill(x - nameWidth / 2 - 2, nameY - 1, x + nameWidth / 2 + 2, nameY + 9, 0x99030914);
         g.centeredText(minecraft.font, name, x, nameY, self ? 0xFFFFE08A : 0xFFE9F2FF);
     }
@@ -414,13 +413,15 @@ public class MapScreen extends Screen {
     /**
      * A small arrow beside the face, pointing where the player looks: the direction on the screen is that of a point a
      * little ahead of them on the ground, so it follows the map's turning and tilt.
+     *
+     * @return how far above the marker's center the arrow reaches, in pixels; 0 where it is not drawn
      */
-    private void drawFacing(GuiGraphicsExtractor g, Vec3 position, double[] screen, float yaw, int size, int color) {
+    private int drawFacing(GuiGraphicsExtractor g, Vec3 position, double[] screen, float yaw, int size, int color) {
         double radians = Math.toRadians(yaw);
         double ahead = blocksPerPixel * 16.0;
         double[] target = screenPointOf(position.add(-Math.sin(radians) * ahead, 0.0, Math.cos(radians) * ahead));
         if (target == null || Math.abs(target[0] - screen[0]) + Math.abs(target[1] - screen[1]) < 1.0) {
-            return;
+            return 0;
         }
         float angle = (float) Math.atan2(target[1] - screen[1], target[0] - screen[0]);
         g.pose().pushMatrix();
@@ -438,6 +439,11 @@ public class MapScreen extends Screen {
             g.fill(start + 1 + i, -half, start + 2 + i, half + 1, color);
         }
         g.pose().popMatrix();
+        // The highest of the tip and the two corners of the base, turned like the arrow
+        double sin = Math.sin(angle);
+        double cos = Math.cos(angle);
+        double top = Math.min((start + 9) * sin, Math.min(start * sin - 8 * cos, start * sin + 8 * cos));
+        return (int) Math.ceil(Math.max(0.0, -top));
     }
 
     private void keepMapPointUnderMouse(GroundPoint anchor, double mouseX, double mouseY) {
