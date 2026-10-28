@@ -48,6 +48,7 @@ public class LodGenClient implements ClientModInitializer {
 
             // The 3D map is what Voxy renders, seen from high above
             ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE, (payload, context) -> MapPlayers.receive(payload));
+            ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE_FACING, (payload, context) -> MapPlayers.receive(payload));
             KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
             ClientTickEvents.END_CLIENT_TICK.register(client -> {

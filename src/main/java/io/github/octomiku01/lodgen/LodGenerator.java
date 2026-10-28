@@ -566,16 +566,19 @@ final class LodGenerator {
         long now = System.currentTimeMillis();
         for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
             MapFocus focus = this.mapFocus.get(player.getUUID());
-            if (focus == null || now - focus.time >= FOCUS_TIMEOUT_MILLIS || !ServerPlayNetworking.canSend(player, MapPlayersPayload.TYPE)) {
+            // Clients of older versions only know the list without where the players look
+            boolean withFacing = ServerPlayNetworking.canSend(player, MapPlayersPayload.TYPE_FACING);
+            if (focus == null || now - focus.time >= FOCUS_TIMEOUT_MILLIS || !withFacing && !ServerPlayNetworking.canSend(player, MapPlayersPayload.TYPE)) {
                 continue;
             }
             List<MapPlayersPayload.Entry> others = new ArrayList<>();
             for (ServerPlayer other : ((ServerLevel) player.level()).players()) {
                 if (other != player && !other.isSpectator()) {
-                    others.add(new MapPlayersPayload.Entry(other.getUUID(), other.getScoreboardName(), other.getX(), other.getY(), other.getZ()));
+                    others.add(new MapPlayersPayload.Entry(other.getUUID(), other.getScoreboardName(), other.getX(), other.getY(), other.getZ(),
+                            other.getYHeadRot()));
                 }
             }
-            ServerPlayNetworking.send(player, new MapPlayersPayload(player.level().dimension(), others));
+            ServerPlayNetworking.send(player, new MapPlayersPayload(player.level().dimension(), others, withFacing));
         }
     }
 
