@@ -110,6 +110,8 @@ public class MapScreen extends Screen {
     private int sentFocusRadius;
     /** Set while handing over to a screen that comes back to the map: leaving for it does not close the map */
     private boolean handingOver;
+    /** Open after a right click on the map, see {@link MapContextMenu} */
+    private MapContextMenu contextMenu;
 
     public MapScreen(KeyMapping openKey) {
         super(Component.translatable("lodgen.map.title"));
@@ -156,6 +158,9 @@ public class MapScreen extends Screen {
         checkNetherCut();
         drawPlayers(g, delta);
         drawWorldViewerOverlay(g, mouseX, mouseY);
+        if (contextMenu != null) {
+            contextMenu.draw(minecraft, g, mouseX, mouseY);
+        }
         drawOpeningAnimation(g);
         super.extractRenderState(g, mouseX, mouseY, delta);
     }
@@ -280,26 +285,40 @@ public class MapScreen extends Screen {
     }
 
     /**
-     * Opens Xaero's screen to add a waypoint where the mouse points at the ground, with its height. Where neither
-     * the loaded chunks nor the LODs have ground under the mouse, at the sea level's spot, its height left open.
+     * The spot where the mouse points at the ground, with its height. Where neither the loaded chunks nor the LODs
+     * have ground under the mouse, the spot at the sea level, its height left open; null above the horizon.
      */
-    private void addWaypoint(double mouseX, double mouseY) {
+    private MapContextMenu.Spot spotAt(double mouseX, double mouseY) {
         double[] ray = rayAt(mouseX, mouseY);
         if (ray == null || minecraft.level == null) {
-            return;
+            return null;
         }
         int topY = isNether() ? netherCut : minecraft.level.getMaxY();
         BlockPos ground = TerrainPick.pick(minecraft.level, MapCamera.x(), MapCamera.y(), MapCamera.z(), ray[0], ray[1], ray[2], topY);
-        Screen screen;
         if (ground != null) {
-            screen = XaeroWaypoints.addScreen(minecraft, this, ground.getX(), ground.getY(), ground.getZ());
-        } else {
-            if (ray[1] >= 0) {
-                return;
-            }
-            double t = (minecraft.level.getSeaLevel() - MapCamera.y()) / ray[1];
-            screen = XaeroWaypoints.addScreen(minecraft, this, Mth.floor(MapCamera.x() + ray[0] * t), null, Mth.floor(MapCamera.z() + ray[2] * t));
+            return new MapContextMenu.Spot(ground.getX(), ground.getY(), ground.getZ());
         }
+        if (ray[1] >= 0) {
+            return null;
+        }
+        double t = (minecraft.level.getSeaLevel() - MapCamera.y()) / ray[1];
+        return new MapContextMenu.Spot(Mth.floor(MapCamera.x() + ray[0] * t), null, Mth.floor(MapCamera.z() + ray[2] * t));
+    }
+
+    /** Opens the menu for the spot under the mouse, see {@link MapContextMenu} */
+    private void openContextMenu(double mouseX, double mouseY) {
+        MapContextMenu.Spot spot = spotAt(mouseX, mouseY);
+        if (spot == null) {
+            contextMenu = null;
+            return;
+        }
+        contextMenu = new MapContextMenu(minecraft, spot, XaeroWaypoints.available() ? () -> addWaypoint(spot) : null);
+        contextMenu.place(minecraft, this, mouseX, mouseY);
+    }
+
+    /** Opens Xaero's screen to add a waypoint at the spot; the map comes back once it closes */
+    private void addWaypoint(MapContextMenu.Spot spot) {
+        Screen screen = XaeroWaypoints.addScreen(minecraft, this, spot.x(), spot.y(), spot.z());
         if (screen != null) {
             dragging = false;
             middleDragging = false;
@@ -666,9 +685,7 @@ public class MapScreen extends Screen {
         if (isNether()) {
             keys.add("cut");
         }
-        if (XaeroWaypoints.available()) {
-            keys.add("waypoint");
-        }
+        keys.add("menu");
         keys.add("center");
         keys.add("close");
         String[][] hints = new String[keys.size()][];
@@ -762,6 +779,13 @@ public class MapScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (contextMenu != null && event.button() == InputConstants.MOUSE_BUTTON_LEFT) {
+            // A click on an option runs it; any click closes the menu
+            MapContextMenu menu = contextMenu;
+            contextMenu = null;
+            menu.click(event.x(), event.y());
+            return true;
+        }
         if (event.button() == InputConstants.MOUSE_BUTTON_LEFT && handleSettingsClick(event.x(), event.y())) {
             return true;
         }
@@ -779,8 +803,8 @@ public class MapScreen extends Screen {
             moveVelocityZ = 0.0;
             return true;
         }
-        if (event.button() == InputConstants.MOUSE_BUTTON_RIGHT && XaeroWaypoints.available() && !isUnsupportedDimension()) {
-            addWaypoint(event.x(), event.y());
+        if (event.button() == InputConstants.MOUSE_BUTTON_RIGHT && !isUnsupportedDimension()) {
+            openContextMenu(event.x(), event.y());
             return true;
         }
         if (event.button() == InputConstants.MOUSE_BUTTON_MIDDLE) {
@@ -831,6 +855,10 @@ public class MapScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
+        if (key == SDLScancode.SDL_SCANCODE_ESCAPE && contextMenu != null) {
+            contextMenu = null;
+            return true;
+        }
         if (key == SDLScancode.SDL_SCANCODE_ESCAPE || openKey.matches(event)) {
             onClose();
             return true;
