@@ -357,7 +357,7 @@ public class MapScreen extends Screen {
     }
 
     /**
-     * Every player, with their face and name; this player in gold, on top. Those the client has (near, or far on the
+     * Every player, with their face, name and where they look; this player in gold, on top. Those the client has (near, or far on the
      * LODs) move smoothly; the server tells where the others are once a second.
      */
     private void drawPlayers(GuiGraphicsExtractor g, float partialTick) {
@@ -374,7 +374,7 @@ public class MapScreen extends Screen {
         players.addAll(FarEntities.players());
         for (AbstractClientPlayer player : players) {
             shown.add(player.getUUID());
-            drawMarker(g, player.getPosition(partialTick), player.getSkin(), player.getName(), false);
+            drawMarker(g, player.getPosition(partialTick), player.getYHeadRot(), player.getSkin(), player.getName(), false);
         }
         for (MapPlayersPayload.Entry entry : MapPlayers.current(minecraft)) {
             if (shown.contains(entry.uuid()) || minecraft.player != null && entry.uuid().equals(minecraft.player.getUUID())) {
@@ -382,14 +382,16 @@ public class MapScreen extends Screen {
             }
             PlayerInfo info = minecraft.getConnection() == null ? null : minecraft.getConnection().getPlayerInfo(entry.uuid());
             PlayerSkin skin = info != null ? info.getSkin() : DefaultPlayerSkin.get(entry.uuid());
-            drawMarker(g, new Vec3(entry.x(), entry.y(), entry.z()), skin, Component.literal(entry.name()), false);
+            drawMarker(g, new Vec3(entry.x(), entry.y(), entry.z()), entry.yaw(), skin, Component.literal(entry.name()), false);
         }
         if (minecraft.player != null) {
-            drawMarker(g, minecraft.player.getPosition(partialTick), minecraft.player.getSkin(), minecraft.player.getName(), true);
+            drawMarker(g, minecraft.player.getPosition(partialTick), minecraft.player.getViewYRot(partialTick), minecraft.player.getSkin(),
+                    minecraft.player.getName(), true);
         }
     }
 
-    private void drawMarker(GuiGraphicsExtractor g, Vec3 position, PlayerSkin skin, Component name, boolean self) {
+    /** @param yaw where the player looks, in degrees as Minecraft counts them; NaN if not known */
+    private void drawMarker(GuiGraphicsExtractor g, Vec3 position, float yaw, PlayerSkin skin, Component name, boolean self) {
         double[] screen = screenPointOf(position);
         if (screen == null || screen[0] < -16 || screen[0] > width + 16 || screen[1] < -16 || screen[1] > height + 16) {
             return;
@@ -397,12 +399,48 @@ public class MapScreen extends Screen {
         int x = (int) Math.round(screen[0]);
         int y = (int) Math.round(screen[1]);
         int size = self ? 12 : 10;
-        g.fill(x - size / 2 - 1, y - size / 2 - 1, x + size / 2 + 1, y + size / 2 + 1, self ? 0xFFFFC23B : 0xFF7DEBFF);
+        int color = self ? 0xFFFFC23B : 0xFF7DEBFF;
+        if (!Float.isNaN(yaw)) {
+            drawFacing(g, position, screen, yaw, size, color);
+        }
+        g.fill(x - size / 2 - 1, y - size / 2 - 1, x + size / 2 + 1, y + size / 2 + 1, color);
         PlayerFaceExtractor.extractRenderState(g, skin, x - size / 2, y - size / 2, size);
         int nameWidth = minecraft.font.width(name);
         int nameY = y - size / 2 - 12;
         g.fill(x - nameWidth / 2 - 2, nameY - 1, x + nameWidth / 2 + 2, nameY + 9, 0x99030914);
         g.centeredText(minecraft.font, name, x, nameY, self ? 0xFFFFE08A : 0xFFE9F2FF);
+    }
+
+    /**
+     * A small arrow beside the face, pointing where the player looks: the direction on the screen is that of a point a
+     * little ahead of them on the ground, so it follows the map's turning and tilt.
+     */
+    private void drawFacing(GuiGraphicsExtractor g, Vec3 position, double[] screen, float yaw, int size, int color) {
+        double radians = Math.toRadians(yaw);
+        double ahead = blocksPerPixel * 16.0;
+        double[] target = screenPointOf(position.add(-Math.sin(radians) * ahead, 0.0, Math.cos(radians) * ahead));
+        if (target == null || Math.abs(target[0] - screen[0]) + Math.abs(target[1] - screen[1]) < 1.0) {
+            return;
+        }
+        float angle = (float) Math.atan2(target[1] - screen[1], target[0] - screen[0]);
+        g.pose().pushMatrix();
+        g.pose().translate((float) screen[0], (float) screen[1]);
+        g.pose().rotate(angle);
+        int start = size / 2 + 1;
+        // A dark edge first, then the triangle in the marker's colour, its tip away from the face
+        for (int i = 0; i < 8; i++) {
+            int half = 6 - i;
+            if (half >= 0) {
+                g.fill(start + i, -half - 1, start + i + 1, half + 2, 0xAA000000);
+            }
+        }
+        for (int i = 0; i < 6; i++) {
+            int half = 4 - i;
+            if (half >= 0) {
+                g.fill(start + 1 + i, -half, start + 2 + i, half + 1, color);
+            }
+        }
+        g.pose().popMatrix();
     }
 
     private void keepMapPointUnderMouse(GroundPoint anchor, double mouseX, double mouseY) {

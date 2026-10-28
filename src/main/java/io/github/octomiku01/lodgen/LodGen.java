@@ -33,6 +33,7 @@ public class LodGen implements ModInitializer {
         PayloadTypeRegistry.clientboundPlay().register(LodHorizonPayload.TYPE, LodHorizonPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FarEntitiesPayload.TYPE, FarEntitiesPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(MapPlayersPayload.TYPE, MapPlayersPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(MapPlayersPayload.TYPE_FACING, MapPlayersPayload.CODEC_FACING);
         PayloadTypeRegistry.serverboundPlay().register(MapFocusPayload.TYPE, MapFocusPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(MapFocusPayload.TYPE, (payload, context) -> {
             if (generator != null) {
