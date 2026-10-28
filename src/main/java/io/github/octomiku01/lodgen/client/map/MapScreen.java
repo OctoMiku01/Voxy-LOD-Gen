@@ -426,19 +426,16 @@ public class MapScreen extends Screen {
         g.pose().pushMatrix();
         g.pose().translate((float) screen[0], (float) screen[1]);
         g.pose().rotate(angle);
-        int start = size / 2 + 1;
+        // Beyond the face's corners, so it shows whole in every direction
+        int start = (int) Math.ceil((size / 2 + 1) * Math.sqrt(2.0)) + 1;
         // A dark edge first, then the triangle in the marker's colour, its tip away from the face
-        for (int i = 0; i < 8; i++) {
-            int half = 6 - i;
-            if (half >= 0) {
-                g.fill(start + i, -half - 1, start + i + 1, half + 2, 0xAA000000);
-            }
+        for (int i = 0; i <= 8; i++) {
+            int half = 7 - i;
+            g.fill(start + i, -Math.max(half, 0) - 1, start + i + 1, Math.max(half, 0) + 2, 0xAA000000);
         }
-        for (int i = 0; i < 6; i++) {
-            int half = 4 - i;
-            if (half >= 0) {
-                g.fill(start + 1 + i, -half, start + 2 + i, half + 1, color);
-            }
+        for (int i = 0; i <= 6; i++) {
+            int half = 6 - i;
+            g.fill(start + 1 + i, -half, start + 2 + i, half + 1, color);
         }
         g.pose().popMatrix();
     }
