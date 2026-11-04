@@ -41,10 +41,13 @@ public final class MapStructures {
         ICONS.put("ancient_city", Items.SCULK_SHRIEKER);
         ICONS.put("trail_ruins", Items.BRUSH);
         ICONS.put("trial_chambers", Items.TRIAL_KEY);
+        ICONS.put("abandoned_camp", Items.CAMPFIRE);
     }
 
     /** Common and small: shown smaller, so they do not crowd out the others (the ocean is full of ruins and wrecks) */
-    private static final List<String> MINOR = List.of("ocean_ruin", "shipwreck", "ruined_portal");
+    private static final List<String> MINOR = List.of("ocean_ruin", "shipwreck", "ruined_portal", "abandoned_camp");
+    /** Vanilla structures with one variant per biome that all share one name */
+    private static final List<String> SHARED_NAMES = List.of("abandoned_camp");
 
     /** One marker as the map shows it */
     record Shown(StructureMarkers.Marker marker, ItemStack icon, Component name, boolean minor) {
@@ -114,6 +117,14 @@ public final class MapStructures {
                 fallback.append(word.substring(0, 1).toUpperCase(Locale.ROOT)).append(word.substring(1));
             }
         }
-        return Component.translatableWithFallback("lodgen.structure." + id.replace(':', '.').replace('/', '.'), fallback.toString());
+        String key = id.replace(':', '.').replace('/', '.');
+        if (id.startsWith("minecraft:")) {
+            for (String shared : SHARED_NAMES) {
+                if (path.startsWith(shared)) {
+                    key = "minecraft." + shared;
+                }
+            }
+        }
+        return Component.translatableWithFallback("lodgen.structure." + key, fallback.toString());
     }
 }

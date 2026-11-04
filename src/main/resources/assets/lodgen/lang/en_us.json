@@ -144,5 +144,6 @@
   "lodgen.map.structures.auto": "Auto",
   "lodgen.map.structures.on": "On",
   "lodgen.map.structures.off": "Off",
-  "lodgen.map.structures.autoNow": "%s (%s)"
+  "lodgen.map.structures.autoNow": "%s (%s)",
+  "lodgen.structure.minecraft.abandoned_camp": "Abandoned Camp"
 }
