@@ -467,6 +467,11 @@ final class LodGenerator {
         this.structureScan = config.structures && config.mapStructures ? new StructureScan(this, config) : null;
     }
 
+    /** Null when the horizon is off */
+    @Nullable LodHorizon horizon() {
+        return this.horizon;
+    }
+
     List<LodHorizon.Target> horizonTargets() {
         return this.horizonTargets;
     }
