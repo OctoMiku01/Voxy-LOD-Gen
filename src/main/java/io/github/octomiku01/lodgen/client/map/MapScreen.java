@@ -596,15 +596,19 @@ public class MapScreen extends Screen {
         progressX = x;
         progressY = y;
         progressSize = size;
-        g.blit(RenderPipelines.GUI_TEXTURED, MapProgress.TEXTURE, x, y, 0, 0, size, size, view.size(), view.size(), view.size(), view.size());
-        double blocks = view.size() * view.cellSize() * 16.0;
+        int crop = MapProgress.cropSize();
+        g.blit(RenderPipelines.GUI_TEXTURED, MapProgress.TEXTURE, x, y, MapProgress.cropU(), MapProgress.cropV(), size, size, crop, crop,
+                view.size(), view.size());
+        double blocks = crop * view.cellSize() * 16.0;
+        double originX = (view.minX() + MapProgress.cropU() * view.cellSize()) * 16.0;
+        double originZ = (view.minZ() + MapProgress.cropV() * view.cellSize()) * 16.0;
         if (minecraft.player != null) {
-            int px = x + (int) ((minecraft.player.getX() - view.minX() * 16.0) / blocks * size);
-            int pz = y + (int) ((minecraft.player.getZ() - view.minZ() * 16.0) / blocks * size);
+            int px = x + (int) ((minecraft.player.getX() - originX) / blocks * size);
+            int pz = y + (int) ((minecraft.player.getZ() - originZ) / blocks * size);
             g.fill(px - 2, pz - 2, px + 2, pz + 2, 0xFFFFC23B);
         }
-        int cx = x + (int) ((viewCenterX - view.minX() * 16.0) / blocks * size);
-        int cz = y + (int) ((viewCenterZ - view.minZ() * 16.0) / blocks * size);
+        int cx = x + (int) ((viewCenterX - originX) / blocks * size);
+        int cz = y + (int) ((viewCenterZ - originZ) / blocks * size);
         if (cx >= x && cx < x + size && cz >= y && cz < y + size) {
             // Where the map looks, and which way: its forward direction on the ground
             for (int i = 2; i <= 8; i++) {
@@ -638,9 +642,9 @@ public class MapScreen extends Screen {
                 || mouseY >= progressY + progressSize) {
             return false;
         }
-        double blocks = view.size() * view.cellSize() * 16.0;
-        viewCenterX = view.minX() * 16.0 + (mouseX - progressX) / progressSize * blocks;
-        viewCenterZ = view.minZ() * 16.0 + (mouseY - progressY) / progressSize * blocks;
+        double blocks = MapProgress.cropSize() * view.cellSize() * 16.0;
+        viewCenterX = (view.minX() + MapProgress.cropU() * view.cellSize()) * 16.0 + (mouseX - progressX) / progressSize * blocks;
+        viewCenterZ = (view.minZ() + MapProgress.cropV() * view.cellSize()) * 16.0 + (mouseY - progressY) / progressSize * blocks;
         syncWorldCamera();
         return true;
     }

@@ -20,6 +20,10 @@ public final class MapProgress {
     private static long receivedAt;
     private static @Nullable DynamicTexture texture;
     private static int textureSize;
+    /** The square of cells that has anything in it, with a margin: what the view shows, so it is not mostly empty */
+    private static int cropU;
+    private static int cropV;
+    private static int cropSize;
 
     private MapProgress() {
     }
@@ -44,8 +48,51 @@ public final class MapProgress {
             }
         }
         texture.upload();
+        crop(cells, size);
         last = payload;
         receivedAt = System.currentTimeMillis();
+    }
+
+    private static void crop(byte[] cells, int size) {
+        int minColumn = size;
+        int maxColumn = -1;
+        int minRow = size;
+        int maxRow = -1;
+        for (int row = 0; row < size; row++) {
+            for (int column = 0; column < size; column++) {
+                if (cells[row * size + column] != 0) {
+                    minColumn = Math.min(minColumn, column);
+                    maxColumn = Math.max(maxColumn, column);
+                    minRow = Math.min(minRow, row);
+                    maxRow = Math.max(maxRow, row);
+                }
+            }
+        }
+        if (maxColumn < 0) {
+            cropU = 0;
+            cropV = 0;
+            cropSize = size;
+            return;
+        }
+        int side = Math.max(maxColumn - minColumn, maxRow - minRow) + 1;
+        side = Math.min(size, Math.max(Math.min(size, 16), side + Math.max(2, side / 12) * 2));
+        int centerColumn = (minColumn + maxColumn + 1) / 2;
+        int centerRow = (minRow + maxRow + 1) / 2;
+        cropU = Math.clamp(centerColumn - side / 2, 0, size - side);
+        cropV = Math.clamp(centerRow - side / 2, 0, size - side);
+        cropSize = side;
+    }
+
+    static int cropU() {
+        return cropU;
+    }
+
+    static int cropV() {
+        return cropV;
+    }
+
+    static int cropSize() {
+        return cropSize;
     }
 
     /** The view of the player's dimension, if a recent one came */
