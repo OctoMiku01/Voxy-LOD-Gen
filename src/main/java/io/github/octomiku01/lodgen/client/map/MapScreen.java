@@ -48,6 +48,8 @@ public class MapScreen extends Screen {
     /** Structure markers closer together than this many pixels are left out but one */
     private static final int STRUCTURE_SPACING = 16;
     private static final int MINOR_STRUCTURE_SPACING = 11;
+    /** Pixels of room a structure marker keeps or needs beyond the spacing, see claimSpot */
+    private static final int STRUCTURE_HYSTERESIS = 3;
     private static final int SPEED_BUTTON_SIZE = 18;
     private static final int HUD_MARGIN = 12;
     private static final int HUD_GAP = 6;
@@ -108,6 +110,8 @@ public class MapScreen extends Screen {
     private int timeRowY = -1;
     private int lodsRowY = -1;
     private int structuresRowY = -1;
+    /** The structure markers drawn in the last frame */
+    private Set<MapStructures.Shown> shownStructures = Set.of();
     private int focusTicks;
     private int cutSliderX = -1;
     private int cutSliderY = -1;
@@ -380,7 +384,8 @@ public class MapScreen extends Screen {
         }
         markers.sort(Comparator.comparing(MapStructures.Shown::minor).thenComparingInt(shown -> shown.marker().x())
                 .thenComparingInt(shown -> shown.marker().z()));
-        Long2ObjectOpenHashMap<int[]> drawn = new Long2ObjectOpenHashMap<>();
+        Long2ObjectOpenHashMap<List<int[]>> drawn = new Long2ObjectOpenHashMap<>();
+        Set<MapStructures.Shown> shownNow = new HashSet<>();
         MapStructures.Shown hovered = null;
         int hoveredX = 0;
         int hoveredY = 0;
@@ -397,9 +402,10 @@ public class MapScreen extends Screen {
             }
             int x = (int) Math.round(screen[0]);
             int y = (int) Math.round(screen[1]);
-            if (!claimSpot(drawn, x, y, shown.minor() ? MINOR_STRUCTURE_SPACING : STRUCTURE_SPACING)) {
+            if (!claimSpot(drawn, x, y, shown.minor() ? MINOR_STRUCTURE_SPACING : STRUCTURE_SPACING, shownStructures.contains(shown))) {
                 continue;
             }
+            shownNow.add(shown);
             if (shown.minor()) {
                 drawSmallItem(g, shown, x, y);
             } else {
@@ -414,6 +420,7 @@ public class MapScreen extends Screen {
                 hoveredDistance = distance;
             }
         }
+        shownStructures = shownNow;
         // Items are drawn above everything else of their stratum: the players and the HUD go on a new one
         g.nextStratum();
         if (hovered != null && contextMenu == null) {
@@ -434,23 +441,31 @@ public class MapScreen extends Screen {
         g.pose().popMatrix();
     }
 
-    /** Whether no marker was drawn yet within this many pixels of this spot; if so, it is taken now */
-    private static boolean claimSpot(Long2ObjectOpenHashMap<int[]> drawn, int x, int y, int spacing) {
+    /**
+     * Whether no marker was drawn yet this close to this spot; if so, it is taken now. Only the real distance counts,
+     * so the outcome does not change as markers move across the cells while the map is dragged. A marker shown in
+     * the last frame needs a little less room than one that was not, so two at the edge of the spacing do not take
+     * turns every frame as the perspective shifts them by a pixel.
+     */
+    private static boolean claimSpot(Long2ObjectOpenHashMap<List<int[]>> drawn, int x, int y, int spacing, boolean shownBefore) {
+        int slack = shownBefore ? -STRUCTURE_HYSTERESIS : STRUCTURE_HYSTERESIS;
         int cellX = Math.floorDiv(x, STRUCTURE_SPACING);
         int cellY = Math.floorDiv(y, STRUCTURE_SPACING);
         for (int cx = cellX - 1; cx <= cellX + 1; cx++) {
             for (int cy = cellY - 1; cy <= cellY + 1; cy++) {
-                int[] other = drawn.get(((long) cx << 32) ^ (cy & 0xFFFFFFFFL));
-                if (other != null && Math.abs(other[0] - x) < Math.max(spacing, other[2]) && Math.abs(other[1] - y) < Math.max(spacing, other[2])) {
-                    return false;
+                List<int[]> others = drawn.get(((long) cx << 32) ^ (cy & 0xFFFFFFFFL));
+                if (others == null) {
+                    continue;
+                }
+                for (int[] other : others) {
+                    int needed = Math.max(spacing, other[2]) + slack;
+                    if (Math.abs(other[0] - x) < needed && Math.abs(other[1] - y) < needed) {
+                        return false;
+                    }
                 }
             }
         }
-        long cell = ((long) cellX << 32) ^ (cellY & 0xFFFFFFFFL);
-        if (drawn.containsKey(cell)) {
-            return false;
-        }
-        drawn.put(cell, new int[] {x, y, spacing});
+        drawn.computeIfAbsent(((long) cellX << 32) ^ (cellY & 0xFFFFFFFFL), cell -> new ArrayList<>(2)).add(new int[] {x, y, spacing});
         return true;
     }
 
