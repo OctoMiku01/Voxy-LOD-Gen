@@ -455,6 +455,13 @@ final class LodHorizon {
         return null;
     }
 
+    /** For the 3D map's progress view: whether the player got the horizon at this chunk; never starts a watcher */
+    synchronized boolean isDone(Target target, long chunk) {
+        Map<ResourceKey<Level>, Watcher> byDimension = this.watchers.get(target.id());
+        Watcher watcher = byDimension == null ? null : byDimension.get(target.level().dimension());
+        return watcher != null && watcher.done.contains(chunk);
+    }
+
     /** The grid of the samples at this distance (squared, in chunks) from the player */
     static int stepFor(long distanceSquared) {
         return distanceSquared <= (long) FINE_DISTANCE * FINE_DISTANCE ? 4 : distanceSquared <= (long) MEDIUM_DISTANCE * MEDIUM_DISTANCE ? 8 : 16;

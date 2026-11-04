@@ -154,5 +154,13 @@
   "lodgen.map.waypoint.default": "Waypoint",
   "lodgen.map.settings.waypointsInGame": "Waypoints in the game",
   "lodgen.map.key.screenshot.button": "F2",
-  "lodgen.map.key.screenshot": "picture"
+  "lodgen.map.key.screenshot": "picture",
+  "lodgen.map.key.progress.button": "P",
+  "lodgen.map.key.progress": "progress",
+  "lodgen.map.progress.explored": "real",
+  "lodgen.map.progress.details": "details",
+  "lodgen.map.progress.terrain": "terrain",
+  "lodgen.map.progress.horizon": "horizon",
+  "lodgen.map.progress.waiting": "Asking the server...",
+  "lodgen.map.progress.unsupported": "Needs the mod on the server"
 }

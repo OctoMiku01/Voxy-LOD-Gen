@@ -50,7 +50,9 @@ unexplored and watch the land appear. Every player in the dimension shows on it 
 with `farPlayers` on). Both need the mod on the server, which then also limits them. A right click on the map opens a
 menu for the spot it points at, with the height and biome of the ground there: set a waypoint (also one in
 [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap), if installed), teleport there (where you may use `/tp`), copy
-its coordinates or share them in the chat. The waypoints are kept per world on this computer and show on the map with their name, and in the game with their
+its coordinates or share them in the chat. `P` shows how far your LODs are, as a small view from above (north up): real chunks, with details, terrain
+only and horizon, with you and where the map looks; a click on it moves the map there. `F2` on the map takes a
+screenshot of the map alone, without its panels and markers. The waypoints are kept per world on this computer and show on the map with their name, and in the game with their
 name and distance (off in the map's settings); a right click on one renames or deletes it. The structures in the LODs (villages, temples, strongholds...) show on
 it too, each with an item that stands for it, and its name and place under the mouse; in survival and adventure mode they
 stay hidden unless switched on in the map's settings, and the server can leave them out for everyone with

@@ -4,6 +4,7 @@ import io.github.octomiku01.lodgen.MapFocusPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import io.github.octomiku01.lodgen.client.FarEntities;
 import io.github.octomiku01.lodgen.MapPlayersPayload;
+import io.github.octomiku01.lodgen.MapProgressPayload;
 import io.github.octomiku01.lodgen.StructureMarkers;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
@@ -15,6 +16,7 @@ import java.util.UUID;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.BlockPos;
 import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.multiplayer.PlayerInfo;
@@ -47,6 +49,8 @@ public class MapScreen extends Screen {
     private static final int SETTINGS_ROW_HEIGHT = 24;
     /** Structure markers closer together than this many pixels are left out but one */
     private static final int STRUCTURE_SPACING = 16;
+    /** How often the open progress view asks the server again; it sends a new one every few seconds anyway */
+    private static final int PROGRESS_ASK_TICKS = 40;
     private static final int MINOR_STRUCTURE_SPACING = 11;
     /** Pixels of room a structure marker keeps or needs beyond the spacing, see claimSpot */
     private static final int STRUCTURE_HYSTERESIS = 3;
@@ -113,6 +117,12 @@ public class MapScreen extends Screen {
     private int waypointsRowY = -1;
     /** Frames until the clean screenshot is taken, see takeCleanScreenshot; 0 when none is asked for */
     private int cleanShotFrames;
+    /** Ticks until the progress view is asked for again */
+    private int progressAskTicks;
+    /** Where the progress view was drawn, for clicks on it; width 0 when it is not shown */
+    private int progressX;
+    private int progressY;
+    private int progressSize;
     private Component shotMessage;
     private long shotMessageAt;
     /** The structure markers drawn in the last frame */
@@ -189,6 +199,7 @@ public class MapScreen extends Screen {
         drawWaypoints(g, mouseX, mouseY);
         drawPlayers(g, delta);
         drawWorldViewerOverlay(g, mouseX, mouseY);
+        drawProgressView(g);
         if (contextMenu != null) {
             contextMenu.draw(minecraft, g, mouseX, mouseY);
         }
@@ -230,6 +241,10 @@ public class MapScreen extends Screen {
 
     @Override
     public void tick() {
+        if (MapSettings.get().progressView() && --progressAskTicks <= 0 && ClientPlayNetworking.canSend(MapProgressPayload.Request.TYPE)) {
+            ClientPlayNetworking.send(new MapProgressPayload.Request());
+            progressAskTicks = PROGRESS_ASK_TICKS;
+        }
         syncWorldCamera();
         sendFocus();
     }
@@ -554,6 +569,79 @@ public class MapScreen extends Screen {
             }
         }
         drawn.computeIfAbsent(((long) cellX << 32) ^ (cellY & 0xFFFFFFFFL), cell -> new ArrayList<>(2)).add(new int[] {x, y, spacing});
+        return true;
+    }
+
+    /**
+     * How far the LODs are around the player, as the server keeps it, seen from above with north up: real chunks,
+     * with details, terrain only, horizon. The player in gold, where the map looks in cyan with an arrow for its
+     * direction; a click on it moves the map there.
+     */
+    private void drawProgressView(GuiGraphicsExtractor g) {
+        progressSize = 0;
+        if (!MapSettings.get().progressView()) {
+            return;
+        }
+        int size = Math.max(64, Math.min(180, height / 3));
+        int legendH = 12;
+        int x = HUD_MARGIN;
+        int y = height - HUD_MARGIN - KEY_HINT_HEIGHT - HUD_GAP * 2 - size - legendH;
+        drawGlassPanel(g, x - 4, y - 4, size + 8, size + legendH + 8, 0xCC030914, 0xFF3BA4FF);
+        MapProgressPayload view = MapProgress.current(minecraft);
+        if (view == null) {
+            g.centeredText(minecraft.font, Component.translatable(ClientPlayNetworking.canSend(MapProgressPayload.Request.TYPE)
+                    ? "lodgen.map.progress.waiting" : "lodgen.map.progress.unsupported"), x + size / 2, y + size / 2 - 4, 0xFFBFD8FF);
+            return;
+        }
+        progressX = x;
+        progressY = y;
+        progressSize = size;
+        g.blit(RenderPipelines.GUI_TEXTURED, MapProgress.TEXTURE, x, y, 0, 0, size, size, view.size(), view.size(), view.size(), view.size());
+        double blocks = view.size() * view.cellSize() * 16.0;
+        if (minecraft.player != null) {
+            int px = x + (int) ((minecraft.player.getX() - view.minX() * 16.0) / blocks * size);
+            int pz = y + (int) ((minecraft.player.getZ() - view.minZ() * 16.0) / blocks * size);
+            g.fill(px - 2, pz - 2, px + 2, pz + 2, 0xFFFFC23B);
+        }
+        int cx = x + (int) ((viewCenterX - view.minX() * 16.0) / blocks * size);
+        int cz = y + (int) ((viewCenterZ - view.minZ() * 16.0) / blocks * size);
+        if (cx >= x && cx < x + size && cz >= y && cz < y + size) {
+            // Where the map looks, and which way: its forward direction on the ground
+            for (int i = 2; i <= 8; i++) {
+                int ax = cx + (int) Math.round(-Math.sin(viewYaw) * i);
+                int az = cz + (int) Math.round(Math.cos(viewYaw) * i);
+                g.fill(ax, az, ax + 1, az + 1, 0xFF7DEBFF);
+            }
+            g.fill(cx - 1, cz - 1, cx + 2, cz + 2, 0xFF7DEBFF);
+        }
+        String[] legend = {"explored", "details", "terrain", "horizon"};
+        int[] colors = {MapProgress.COLORS[4], MapProgress.COLORS[3], MapProgress.COLORS[2], MapProgress.COLORS[1]};
+        int lx = x;
+        int ly = y + size + 3;
+        g.pose().pushMatrix();
+        g.pose().translate(lx, ly);
+        g.pose().scale(0.75f, 0.75f);
+        int offset = 0;
+        for (int i = 0; i < legend.length; i++) {
+            Component label = Component.translatable("lodgen.map.progress." + legend[i]);
+            g.fill(offset, 1, offset + 7, 8, colors[i]);
+            g.text(minecraft.font, label, offset + 9, 0, 0xFFDFF8FF);
+            offset += 9 + minecraft.font.width(label) + 6;
+        }
+        g.pose().popMatrix();
+    }
+
+    /** A click on the progress view moves the map there; @return whether it was on it */
+    private boolean clickProgressView(double mouseX, double mouseY) {
+        MapProgressPayload view = MapProgress.current(minecraft);
+        if (progressSize == 0 || view == null || mouseX < progressX || mouseX >= progressX + progressSize || mouseY < progressY
+                || mouseY >= progressY + progressSize) {
+            return false;
+        }
+        double blocks = view.size() * view.cellSize() * 16.0;
+        viewCenterX = view.minX() * 16.0 + (mouseX - progressX) / progressSize * blocks;
+        viewCenterZ = view.minZ() * 16.0 + (mouseY - progressY) / progressSize * blocks;
+        syncWorldCamera();
         return true;
     }
 
@@ -983,6 +1071,7 @@ public class MapScreen extends Screen {
             keys.add("cut");
         }
         keys.add("menu");
+        keys.add("progress");
         keys.add("screenshot");
         keys.add("center");
         keys.add("close");
@@ -1091,6 +1180,9 @@ public class MapScreen extends Screen {
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && handleSettingsClick(event.x(), event.y())) {
             return true;
         }
+        if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && clickProgressView(event.x(), event.y())) {
+            return true;
+        }
         if (event.button() == GLFW.GLFW_MOUSE_BUTTON_1 && isInsideCutSlider(event.x(), event.y())) {
             cutDragging = true;
             dragCut(event.x());
@@ -1172,6 +1264,11 @@ public class MapScreen extends Screen {
         }
         if ((key == GLFW.GLFW_KEY_PAGE_UP || key == GLFW.GLFW_KEY_PAGE_DOWN) && isNether()) {
             setCut(netherCut + (key == GLFW.GLFW_KEY_PAGE_UP ? 4 : -4));
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_P) {
+            MapSettings.get().toggleProgressView();
+            progressAskTicks = 0;
             return true;
         }
         if (key == GLFW.GLFW_KEY_C && minecraft.player != null) {

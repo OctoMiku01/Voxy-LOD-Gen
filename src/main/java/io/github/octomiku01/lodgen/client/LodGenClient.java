@@ -5,8 +5,10 @@ import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
 import io.github.octomiku01.lodgen.LodHorizonPayload;
 import io.github.octomiku01.lodgen.MapPlayersPayload;
+import io.github.octomiku01.lodgen.MapProgressPayload;
 import io.github.octomiku01.lodgen.MapStructuresPayload;
 import io.github.octomiku01.lodgen.client.map.MapPlayers;
+import io.github.octomiku01.lodgen.client.map.MapProgress;
 import io.github.octomiku01.lodgen.client.map.MapStructures;
 import io.github.octomiku01.lodgen.client.map.MapScreen;
 import net.fabricmc.api.ClientModInitializer;
@@ -44,6 +46,7 @@ public class LodGenClient implements ClientModInitializer {
                 FarEntities.reset();
                 MapPlayers.clear();
                 MapStructures.clear();
+                MapProgress.clear();
             });
             ClientPlayNetworking.registerGlobalReceiver(FarEntitiesPayload.TYPE, (payload, context) -> FarEntities.receive(payload, context.client()));
             ClientTickEvents.END_CLIENT_TICK.register(FarEntities::tick);
@@ -53,6 +56,7 @@ public class LodGenClient implements ClientModInitializer {
             ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE, (payload, context) -> MapPlayers.receive(payload));
             ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE_FACING, (payload, context) -> MapPlayers.receive(payload));
             ClientPlayNetworking.registerGlobalReceiver(MapStructuresPayload.TYPE, (payload, context) -> MapStructures.receive(payload));
+            ClientPlayNetworking.registerGlobalReceiver(MapProgressPayload.TYPE, (payload, context) -> MapProgress.receive(payload));
             KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
             ClientTickEvents.END_CLIENT_TICK.register(client -> {

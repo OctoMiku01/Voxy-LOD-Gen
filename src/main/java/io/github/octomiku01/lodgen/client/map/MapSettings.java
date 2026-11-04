@@ -30,6 +30,8 @@ public final class MapSettings {
     StructureMarkers structureMarkers = StructureMarkers.AUTO;
     /** Show the own waypoints in the game too, with their name and distance */
     boolean waypointsInGame = true;
+    /** Show how far the LODs are, see MapProgress */
+    boolean progressView = false;
 
     /** When the map shows structures */
     public enum StructureMarkers {
@@ -137,6 +139,15 @@ public final class MapSettings {
 
     public boolean waypointsInGame() {
         return this.waypointsInGame;
+    }
+
+    boolean progressView() {
+        return this.progressView;
+    }
+
+    void toggleProgressView() {
+        this.progressView = !this.progressView;
+        this.save();
     }
 
     void toggleWaypointsInGame() {
