@@ -20,6 +20,8 @@
   "config.lodgen.sendSavedChunks.tooltip": "Chunks that already exist (explored, with everyone's builds) become LODs too, read from the save, and are sent again when they change. Replaces Voxy Server Side for this",
   "config.lodgen.keepUnderground": "Keep deep underground",
   "config.lodgen.keepUnderground.tooltip": "Also send what lies deep underground where no daylight reaches. Only visible from inside caves, about doubles the data",
+  "config.lodgen.worldBorder": "Only within the world border",
+  "config.lodgen.worldBorder.tooltip": "No LODs beyond the world border, where nobody can go. Saves generation time and bandwidth; off shows the land beyond it too",
   "config.lodgen.viewDistanceMargin": "Margin to the view distance",
   "config.lodgen.viewDistanceMargin.tooltip": "Chunks this close beyond the view distance are left to the game",
   "config.lodgen.performance": "Performance",

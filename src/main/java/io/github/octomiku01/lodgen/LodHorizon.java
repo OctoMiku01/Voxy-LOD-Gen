@@ -86,6 +86,8 @@ final class LodHorizon {
         int centerZ;
         int ring;
         int index;
+        /** The world border the walk was made for; when it grows, it starts again for the new chunks */
+        BorderBounds border = BorderBounds.EVERYWHERE;
         double tokens;
         long lastRefill;
         /** Only the host; created when they are first served */
@@ -376,14 +378,25 @@ final class LodHorizon {
                 return null;
             }
         }
-        if (!watcher.started || Math.max(Math.abs(target.chunkX() - watcher.centerX), Math.abs(target.chunkZ() - watcher.centerZ)) >= RECENTER_DISTANCE) {
+        BorderBounds border = BorderBounds.of(target.level(), this.config);
+        boolean borderGrew = !watcher.border.covers(border);
+        watcher.border = border;
+        if (!watcher.started || borderGrew
+                || Math.max(Math.abs(target.chunkX() - watcher.centerX), Math.abs(target.chunkZ() - watcher.centerZ)) >= RECENTER_DISTANCE) {
             watcher.started = true;
             watcher.centerX = target.chunkX();
             watcher.centerZ = target.chunkZ();
             watcher.ring = this.fromRing;
             watcher.index = 0;
         }
+        long reach = border.reach(watcher.centerX, watcher.centerZ);
         while (watcher.ring <= this.toRing) {
+            if (watcher.ring > reach) {
+                // Only chunks beyond the world border are left
+                watcher.ring = this.toRing + 1;
+                watcher.index = 0;
+                break;
+            }
             // Square ring: 8 * ring chunks, starting at its north-west corner
             int side = 2 * watcher.ring;
             int i = watcher.index;
@@ -410,7 +423,7 @@ final class LodHorizon {
             long dz = z - watcher.centerZ;
             long distanceSquared = dx * dx + dz * dz;
             long chunk = LodGenerator.pack(x, z);
-            if (distanceSquared <= (long) this.radius * this.radius || watcher.done.contains(chunk) || this.generator.hasReal(target, chunk)) {
+            if (distanceSquared <= (long) this.radius * this.radius || !border.contains(x, z) || watcher.done.contains(chunk) || this.generator.hasReal(target, chunk)) {
                 continue;
             }
             // Finer close by, coarser further away, where Voxy shows coarser detail anyway: by the distance itself, not

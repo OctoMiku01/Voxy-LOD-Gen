@@ -43,6 +43,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
     private final OptionInstance<Boolean> structures = this.toggle("structures", this.config.structures);
     private final OptionInstance<Boolean> sendSavedChunks = this.toggle("sendSavedChunks", this.config.sendSavedChunks);
     private final OptionInstance<Boolean> keepUnderground = this.toggle("keepUnderground", this.config.keepUnderground);
+    private final OptionInstance<Boolean> worldBorder = this.toggle("worldBorder", this.config.worldBorder);
     private final OptionInstance<Integer> viewDistanceMargin = this.slider("viewDistanceMargin", this.config.viewDistanceMargin, 0, 16, null);
 
     private final OptionInstance<LodPerformance> performance = new OptionInstance<>("config.lodgen.performance",
@@ -129,7 +130,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 this.list.addSmall(this.radius, this.featureRadius);
                 this.list.addSmall(this.mapRadius, this.viewDistanceMargin);
                 this.list.addSmall(this.structures, this.sendSavedChunks);
-                this.list.addSmall(this.keepUnderground);
+                this.list.addSmall(this.keepUnderground, this.worldBorder);
                 this.list.addBig(this.horizonRadius);
             }
             case 1 -> {
@@ -175,6 +176,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 this.structures.set(defaults.structures);
                 this.sendSavedChunks.set(defaults.sendSavedChunks);
                 this.keepUnderground.set(defaults.keepUnderground);
+                this.worldBorder.set(defaults.worldBorder);
             }
             case 1 -> {
                 this.performance.set(defaults.performance);
@@ -248,6 +250,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.config.structures = this.structures.get();
         this.config.sendSavedChunks = this.sendSavedChunks.get();
         this.config.keepUnderground = this.keepUnderground.get();
+        this.config.worldBorder = this.worldBorder.get();
         this.config.viewDistanceMargin = this.viewDistanceMargin.get();
         this.config.performance = this.performance.get();
         this.config.threads = this.threads.get();
