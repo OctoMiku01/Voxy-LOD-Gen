@@ -188,7 +188,7 @@ final class LodPregen {
         for (int x = cx - regionRadius; x <= cx + regionRadius; x++) {
             for (int z = cz - regionRadius; z <= cz + regionRadius; z++) {
                 long region = LodGenerator.pack(x, z);
-                if (StructureScan.overlaps(this.border, x, z) && !StructureMarkers.isScanned(this.level, region)) {
+                if (this.reachesInto(x, z) && StructureScan.overlaps(this.border, x, z) && !StructureMarkers.isScanned(this.level, region)) {
                     todo.add(region);
                 }
             }
@@ -203,6 +203,14 @@ final class LodPregen {
             this.nextRegion = 0;
         }
         this.total = todo.size();
+    }
+
+    /** Whether the region has a chunk within the radius: its nearest chunk to the center is */
+    private boolean reachesInto(int regionX, int regionZ) {
+        int size = 1 << StructureScan.REGION_SHIFT;
+        long dx = Math.max(0, Math.max((long) (regionX << StructureScan.REGION_SHIFT) - this.centerX, this.centerX - ((long) (regionX << StructureScan.REGION_SHIFT) + size - 1)));
+        long dz = Math.max(0, Math.max((long) (regionZ << StructureScan.REGION_SHIFT) - this.centerZ, this.centerZ - ((long) (regionZ << StructureScan.REGION_SHIFT) + size - 1)));
+        return dx * dx + dz * dz <= (long) this.radius * this.radius;
     }
 
     private synchronized long nextRegion() {
