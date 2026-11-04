@@ -78,6 +78,11 @@ final class LodGenerator {
     /** How often players with the 3D map open get the structures around, and how many at most each time */
     private static final long STRUCTURES_INTERVAL_MILLIS = 1_000;
     private static final int MAX_STRUCTURES_PER_SECOND = 256;
+    /** The 3D map's progress view: how often it is sent, how long after the last ask, its cells a side and reach */
+    private static final long PROGRESS_INTERVAL_MILLIS = 3_000;
+    private static final long PROGRESS_ASK_TIMEOUT_MILLIS = 6_000;
+    private static final int PROGRESS_CELLS = 256;
+    private static final int MAX_PROGRESS_RADIUS = 4096;
     /** Moving the map this many chunks restarts the search at the new place */
     private static final int FOCUS_MOVE = 4;
 
@@ -436,6 +441,9 @@ final class LodGenerator {
     /** Who gets the horizon: the host, and players whose client can build it; published by the server thread */
     private volatile List<LodHorizon.Target> horizonTargets = List.of();
     private final Map<UUID, MapFocus> mapFocus = new ConcurrentHashMap<>();
+    /** When each player last asked for the 3D map's progress view, and when they last got it (scheduler thread only) */
+    private final Map<UUID, Long> progressAsked = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> progressSent = new HashMap<>();
     /** Which structures each player with the 3D map open was sent, in the dimension they were in; scheduler thread only */
     private final Map<UUID, SentStructures> sentStructures = new HashMap<>();
     private volatile boolean running = true;
@@ -647,6 +655,81 @@ final class LodGenerator {
                 ServerPlayNetworking.send(player, new MapStructuresPayload(focus.dimension, reset, markers));
             }
         }
+    }
+
+    /** Network: the player's 3D map shows the progress view */
+    void requestProgress(ServerPlayer player) {
+        this.progressAsked.put(player.getUUID(), System.currentTimeMillis());
+    }
+
+    /**
+     * Scheduler thread: the progress view of everyone who asked for it lately, every few seconds. A square around the
+     * player as far as their LODs and horizon reach, at most PROGRESS_CELLS cells a side; a cell larger than one chunk
+     * shows what most of the chunks it samples have.
+     */
+    private void sendMapProgress(long now) {
+        if (this.progressAsked.isEmpty()) {
+            return;
+        }
+        this.progressAsked.values().removeIf(asked -> now - asked > PROGRESS_ASK_TIMEOUT_MILLIS);
+        this.progressSent.keySet().retainAll(this.progressAsked.keySet());
+        for (Viewer viewer : this.viewers) {
+            ServerPlayer player = viewer.player;
+            if (player == null || !this.progressAsked.containsKey(viewer.id) || now - this.progressSent.getOrDefault(viewer.id, 0L) < PROGRESS_INTERVAL_MILLIS
+                    || !ServerPlayNetworking.canSend(player, MapProgressPayload.TYPE)) {
+                continue;
+            }
+            this.progressSent.put(viewer.id, now);
+            int reach = Math.min(MAX_PROGRESS_RADIUS, Math.max(this.config.radius, this.horizon != null ? this.config.horizonRadius : 0));
+            int side = 2 * reach + 1;
+            int cell = Math.max(1, (side + PROGRESS_CELLS - 1) / PROGRESS_CELLS);
+            int size = (side + cell - 1) / cell;
+            int minX = viewer.chunkX - reach;
+            int minZ = viewer.chunkZ - reach;
+            Progress progress = this.progressOf(viewer);
+            LodHorizon.Target target = this.horizon == null ? null : horizonTarget(viewer);
+            byte[] cells = new byte[size * size];
+            int[] votes = new int[5];
+            for (int row = 0; row < size; row++) {
+                for (int column = 0; column < size; column++) {
+                    int x = minX + column * cell;
+                    int z = minZ + row * cell;
+                    if (cell == 1) {
+                        cells[row * size + column] = this.progressState(viewer, progress, target, x, z);
+                        continue;
+                    }
+                    java.util.Arrays.fill(votes, 0);
+                    int quarter = Math.max(1, cell / 4);
+                    votes[this.progressState(viewer, progress, target, x + quarter, z + quarter)]++;
+                    votes[this.progressState(viewer, progress, target, x + cell - 1 - quarter, z + quarter)]++;
+                    votes[this.progressState(viewer, progress, target, x + quarter, z + cell - 1 - quarter)]++;
+                    votes[this.progressState(viewer, progress, target, x + cell - 1 - quarter, z + cell - 1 - quarter)]++;
+                    int best = 0;
+                    for (int state = 1; state < votes.length; state++) {
+                        if (votes[state] >= votes[best]) {
+                            best = state;
+                        }
+                    }
+                    cells[row * size + column] = (byte) best;
+                }
+            }
+            ServerPlayNetworking.send(player, new MapProgressPayload(viewer.level.dimension(), minX, minZ, cell, size, cells));
+        }
+    }
+
+    private byte progressState(Viewer viewer, Progress progress, LodHorizon.@Nullable Target target, int x, int z) {
+        long key = pack(x, z);
+        // What the game shows itself counts as real chunks, like the explored ones sent from the save
+        if (progress.hasSaved(key, 1) || viewer.viewDistance > 0 && ChunkTrackingView.isWithinDistance(viewer.chunkX, viewer.chunkZ, viewer.viewDistance, x, z, false)) {
+            return MapProgressPayload.STATE_EXPLORED;
+        }
+        if (progress.isDone(key, true)) {
+            return MapProgressPayload.STATE_DETAILS;
+        }
+        if (progress.isDone(key, false)) {
+            return MapProgressPayload.STATE_TERRAIN;
+        }
+        return target != null && this.horizon.isDone(target, key) ? MapProgressPayload.STATE_HORIZON : MapProgressPayload.STATE_NONE;
     }
 
     /** Network: where the 3D map of the player looks now, or that it was closed */
@@ -873,6 +956,7 @@ final class LodGenerator {
                     lastStats = now;
                 }
                 if (now - lastStructures >= STRUCTURES_INTERVAL_MILLIS) {
+                    this.sendMapProgress(now);
                     this.sendMapStructures(now);
                     lastStructures = now;
                 }
