@@ -108,11 +108,21 @@ final class StructureScan {
         }
         ServerLevel level = bestSpot.level();
         LodStructures finder = this.structures.computeIfAbsent(level.dimension(), key -> new LodStructures(level));
-        int minX = ChunkPos.getX(bestRegion) << REGION_SHIFT;
-        int minZ = ChunkPos.getZ(bestRegion) << REGION_SHIFT;
+        return scanRegion(finder, level, bestRegion, () -> this.running);
+    }
+
+    /**
+     * Finds the structures of one region of 32 x 32 chunks and notes that it is done; also used by /lodgen pregen
+     *
+     * @return false if it was stopped before it was done
+     */
+    static boolean scanRegion(LodStructures finder, ServerLevel level, long region, java.util.function.BooleanSupplier running)
+            throws InterruptedException {
+        int minX = ChunkPos.getX(region) << REGION_SHIFT;
+        int minZ = ChunkPos.getZ(region) << REGION_SHIFT;
         for (int x = minX; x < minX + REGION_SIZE; x++) {
             for (int z = minZ; z < minZ + REGION_SIZE; z++) {
-                if (!this.running) {
+                if (!running.getAsBoolean()) {
                     return false;
                 }
                 finder.findStarts(x, z);
@@ -121,11 +131,11 @@ final class StructureScan {
                 throw new InterruptedException();
             }
         }
-        StructureMarkers.markScanned(level, bestRegion);
+        StructureMarkers.markScanned(level, region);
         return true;
     }
 
-    private static boolean overlaps(BorderBounds border, int regionX, int regionZ) {
+    static boolean overlaps(BorderBounds border, int regionX, int regionZ) {
         int minX = regionX << REGION_SHIFT;
         int minZ = regionZ << REGION_SHIFT;
         return minX + REGION_SIZE - 1 >= border.minX() && minX <= border.maxX() && minZ + REGION_SIZE - 1 >= border.minZ() && minZ <= border.maxZ();

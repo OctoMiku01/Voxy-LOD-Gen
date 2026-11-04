@@ -428,8 +428,7 @@ final class LodHorizon {
             }
             // Finer close by, coarser further away, where Voxy shows coarser detail anyway: by the distance itself, not
             // by the radius, so a large radius does not leave the whole horizon on the finest grid
-            int step = distanceSquared <= (long) FINE_DISTANCE * FINE_DISTANCE ? 4
-                    : distanceSquared <= (long) MEDIUM_DISTANCE * MEDIUM_DISTANCE ? 8 : 16;
+            int step = stepFor(distanceSquared);
             SavedChunks saved = this.savedOf(target.level());
             boolean explored;
             synchronized (saved) {
@@ -441,6 +440,30 @@ final class LodHorizon {
             return new Job(watcher, target, x, z, step, explored);
         }
         return null;
+    }
+
+    /** The grid of the samples at this distance (squared, in chunks) from the player */
+    static int stepFor(long distanceSquared) {
+        return distanceSquared <= (long) FINE_DISTANCE * FINE_DISTANCE ? 4 : distanceSquared <= (long) MEDIUM_DISTANCE * MEDIUM_DISTANCE ? 8 : 16;
+    }
+
+    /** For /lodgen pregen: one per thread, it keeps scratch state */
+    LodHorizonSampler newSampler(ServerLevel level) {
+        return new LodHorizonSampler(level, this.heightsOf(level.dimension()), this.estimateOf(level.dimension()));
+    }
+
+    /**
+     * For /lodgen pregen: takes the samples of a chunk into the store, unless it has them with this grid or a finer one
+     *
+     * @return whether they had to be taken
+     */
+    boolean pregenerate(ServerLevel level, LodHorizonSampler sampler, int chunkX, int chunkZ, int step) {
+        HorizonStore store = this.storeOf(level);
+        if (store.get(chunkX, chunkZ, step) != null) {
+            return false;
+        }
+        store.put(chunkX, chunkZ, sampler.sample(chunkX, chunkZ, step));
+        return true;
     }
 
     // Every few seconds; the generation's speed only counts real LODs, this one the horizon's

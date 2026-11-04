@@ -54,6 +54,7 @@ public class LodGen implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            LodPregen.stopQuietly();
             if (generator != null) {
                 generator.stop();
                 generator = null;
@@ -79,11 +80,16 @@ public class LodGen implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
                 Commands.literal("lodgen")
-                        .executes(context -> reply(context, generator == null ? notRunning() : generator.statusMessage(context.getSource().getPlayer())))
+                        .executes(LodGen::status)
                         .then(Commands.literal("pause").executes(context -> setPaused(context, true)))
                         .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
                         .then(Commands.literal("reset").executes(LodGen::reset))
                         .then(Commands.literal("compare").executes(LodGen::compare))
+                        .then(Commands.literal("pregen").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                                .executes(context -> pregen(context, LodPregen.defaultRadius(LodConfig.load())))
+                                .then(Commands.literal("stop").executes(context -> reply(context, LodPregen.stop())))
+                                .then(Commands.argument("radius", IntegerArgumentType.integer(1, 8192))
+                                        .executes(context -> pregen(context, IntegerArgumentType.getInteger(context, "radius")))))
                         .then(Commands.literal("bench").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                                 .executes(context -> bench(context, BENCH_RADIUS))
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
@@ -101,6 +107,7 @@ public class LodGen implements ModInitializer {
     public static void restart(MinecraftServer server) {
         server.execute(() -> {
             boolean benchmark = Boolean.getBoolean("lodgen.benchmark");
+            LodPregen.stopQuietly();
             if (generator != null) {
                 generator.stop();
                 generator = null;
@@ -118,6 +125,20 @@ public class LodGen implements ModInitializer {
 
     private static void startFarPlayers(MinecraftServer server, LodConfig config) {
         farPlayers = config.farPlayers && config.sendToPlayers ? new FarPlayers(server, config.radius) : null;
+    }
+
+    private static int status(CommandContext<CommandSourceStack> context) {
+        reply(context, generator == null ? notRunning() : generator.statusMessage(context.getSource().getPlayer()));
+        String pregen = LodPregen.status();
+        if (pregen != null) {
+            reply(context, LodChat.info("Preparing (/lodgen pregen): " + pregen));
+        }
+        return 1;
+    }
+
+    // Prepares the structures and the horizon around where the command runs, see LodPregen
+    private static int pregen(CommandContext<CommandSourceStack> context, int radius) {
+        return reply(context, LodPregen.start(context.getSource(), generator, LodConfig.load(), radius));
     }
 
     private static int setPaused(CommandContext<CommandSourceStack> context, boolean paused) {
