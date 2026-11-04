@@ -82,7 +82,7 @@ final class LodPregen {
             LodPregen pregen = new LodPregen(source, generator, config, radius);
             current = pregen;
             new LodWorkerThread(pregen::run, "LodGen-Pregen").start();
-            return LodChat.info(String.format("Preparing %d chunks around %d, %d in %s with %d threads: %s. Players see it at once when they come",
+            return LodChat.info(String.format("Preparing up to %d chunks around %d, %d in %s with %d threads: %s. Players see it at once when they come",
                     radius, pregen.centerX * 16 + 8, pregen.centerZ * 16 + 8, pregen.level.dimension().identifier(), pregen.threads,
                     structures && generator.horizon() != null ? "structures, then the horizon" : structures ? "structures" : "the horizon"));
         }
@@ -132,7 +132,7 @@ final class LodPregen {
                 this.work(() -> this.horizonWorker(horizon));
             }
             long seconds = (System.currentTimeMillis() - this.startedAt) / 1000;
-            this.report(this.running ? LodChat.success(String.format("Prepared %d chunks around %d, %d in %d s", this.radius,
+            this.report(this.running ? LodChat.success(String.format("Prepared up to %d chunks around %d, %d in %d s", this.radius,
                     this.centerX * 16 + 8, this.centerZ * 16 + 8, seconds)) : LodChat.info("Preparing stopped at " + this.progress()));
         } catch (Throwable t) {
             LodGen.LOGGER.error("Preparing failed", t);
