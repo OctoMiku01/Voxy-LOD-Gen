@@ -16,6 +16,10 @@ import org.jetbrains.annotations.Nullable;
  * Render thread only.
  */
 final class TerrainPick {
+    /** Where the ray hit: the block above the ground, and the biome there (e.g. minecraft:plains) if known */
+    record Hit(BlockPos pos, @Nullable String biome) {
+    }
+
     private TerrainPick() {
     }
 
@@ -23,7 +27,7 @@ final class TerrainPick {
      * The block above the first one the ray hits, or null when it hits nothing. Above {@code topY} nothing counts:
      * in the Nether that is where the map cuts it open.
      */
-    static @Nullable BlockPos pick(ClientLevel level, double ox, double oy, double oz, double dx, double dy, double dz, int topY) {
+    static @Nullable Hit pick(ClientLevel level, double ox, double oy, double oz, double dx, double dy, double dz, int topY) {
         double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (dy >= 0 || length == 0) {
             return null;
@@ -44,7 +48,7 @@ final class TerrainPick {
         try {
             // Where Voxy has not stored the finest LODs, a coarser one is the best there is
             for (int lvl = 0; lvl <= (engine == null ? 0 : WorldEngine.MAX_LOD_LAYER); lvl++) {
-                BlockPos hit = march(level, engine, sections, lvl, ox, oy, oz, dx, dy, dz, start, end);
+                Hit hit = march(level, engine, sections, lvl, ox, oy, oz, dx, dy, dz, start, end);
                 if (hit != null) {
                     return hit;
                 }
@@ -63,7 +67,7 @@ final class TerrainPick {
     }
 
     /** Steps through the cells of one LOD level along the ray, as in Amanatides and Woo's voxel traversal */
-    private static @Nullable BlockPos march(ClientLevel level, @Nullable WorldEngine engine, Long2ObjectOpenHashMap<WorldSection> sections,
+    private static @Nullable Hit march(ClientLevel level, @Nullable WorldEngine engine, Long2ObjectOpenHashMap<WorldSection> sections,
                                             int lvl, double ox, double oy, double oz, double dx, double dy, double dz, double start, double end) {
         int scale = 1 << lvl;
         double px = ox + dx * start;
@@ -84,7 +88,7 @@ final class TerrainPick {
         double t = start;
         while (t <= end) {
             if (solid(level, engine, sections, lvl, x, y, z)) {
-                return new BlockPos(x * scale + scale / 2, (y + 1) * scale, z * scale + scale / 2);
+                return new Hit(new BlockPos(x * scale + scale / 2, (y + 1) * scale, z * scale + scale / 2), biomeAt(level, engine, sections, lvl, x, y, z));
             }
             if (nextX < nextY && nextX < nextZ) {
                 t = nextX;
@@ -98,6 +102,25 @@ final class TerrainPick {
                 t = nextZ;
                 nextZ += deltaZ;
                 z += stepZ;
+            }
+        }
+        return null;
+    }
+
+    /** The biome of a cell found solid: from the loaded chunk, else from Voxy, which keeps one with every block */
+    private static @Nullable String biomeAt(ClientLevel level, @Nullable WorldEngine engine, Long2ObjectOpenHashMap<WorldSection> sections,
+                                            int lvl, int x, int y, int z) {
+        if (lvl == 0 && level.hasChunk(x >> 4, z >> 4)) {
+            return level.getBiome(new BlockPos(x, y, z)).unwrapKey().map(key -> key.identifier().toString()).orElse(null);
+        }
+        WorldSection section = engine == null ? null : sections.get(WorldEngine.getWorldSectionId(lvl, x >> 5, y >> 5, z >> 5));
+        if (section == null) {
+            return null;
+        }
+        int id = Mapper.getBiomeId(section._unsafeGetRawDataArray()[WorldSection.getIndex(x & 31, y & 31, z & 31)]);
+        for (Mapper.BiomeEntry entry : engine.getMapper().getBiomeEntries()) {
+            if (entry != null && entry.id == id) {
+                return entry.biome;
             }
         }
         return null;

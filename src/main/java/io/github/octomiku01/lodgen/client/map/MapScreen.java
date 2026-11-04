@@ -298,7 +298,7 @@ public class MapScreen extends Screen {
     }
 
     /**
-     * The spot where the mouse points at the ground, with its height. Where neither the loaded chunks nor the LODs
+     * The spot where the mouse points at the ground, with its height and biome. Where neither the loaded chunks nor the LODs
      * have ground under the mouse, the spot at the sea level, its height left open; null above the horizon.
      */
     private MapContextMenu.Spot spotAt(double mouseX, double mouseY) {
@@ -307,15 +307,16 @@ public class MapScreen extends Screen {
             return null;
         }
         int topY = isNether() ? netherCut : minecraft.level.getMaxY();
-        BlockPos ground = TerrainPick.pick(minecraft.level, MapCamera.x(), MapCamera.y(), MapCamera.z(), ray[0], ray[1], ray[2], topY);
-        if (ground != null) {
-            return new MapContextMenu.Spot(ground.getX(), ground.getY(), ground.getZ());
+        TerrainPick.Hit hit = TerrainPick.pick(minecraft.level, MapCamera.x(), MapCamera.y(), MapCamera.z(), ray[0], ray[1], ray[2], topY);
+        if (hit != null) {
+            BlockPos ground = hit.pos();
+            return new MapContextMenu.Spot(ground.getX(), ground.getY(), ground.getZ(), hit.biome());
         }
         if (ray[1] >= 0) {
             return null;
         }
         double t = (minecraft.level.getSeaLevel() - MapCamera.y()) / ray[1];
-        return new MapContextMenu.Spot(Mth.floor(MapCamera.x() + ray[0] * t), null, Mth.floor(MapCamera.z() + ray[2] * t));
+        return new MapContextMenu.Spot(Mth.floor(MapCamera.x() + ray[0] * t), null, Mth.floor(MapCamera.z() + ray[2] * t), null);
     }
 
     /** Opens the menu for the spot under the mouse, see {@link MapContextMenu} */
