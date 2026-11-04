@@ -425,8 +425,22 @@ public class MapScreen extends Screen {
         g.nextStratum();
         if (hovered != null && contextMenu == null) {
             StructureMarkers.Marker marker = hovered.marker();
-            g.fill(hoveredX - 10, hoveredY - 10, hoveredX + 10, hoveredY + 10, 0x557DEBFF);
-            g.item(hovered.icon(), hoveredX - 8, hoveredY - 8);
+            // Drawn again above the others, at its own size, with a thin frame around its backdrop
+            int half = hovered.minor() ? 6 : 9;
+            if (hovered.minor()) {
+                drawSmallItem(g, hovered, hoveredX, hoveredY);
+            } else {
+                g.fill(hoveredX - half, hoveredY - half, hoveredX + half, hoveredY + half, 0x99030914);
+                g.item(hovered.icon(), hoveredX - 8, hoveredY - 8);
+            }
+            int left = hoveredX - half - 1;
+            int top = hoveredY - half - 1;
+            int right = hoveredX + half + 1;
+            int bottom = hoveredY + half + 1;
+            g.fill(left, top, right, top + 1, 0xFF7DEBFF);
+            g.fill(left, bottom - 1, right, bottom, 0xFF7DEBFF);
+            g.fill(left, top + 1, left + 1, bottom - 1, 0xFF7DEBFF);
+            g.fill(right - 1, top + 1, right, bottom - 1, 0xFF7DEBFF);
             g.setComponentTooltipForNextFrame(minecraft.font, List.of(hovered.name(),
                     Component.literal(marker.x() + " / " + marker.y() + " / " + marker.z()).withStyle(ChatFormatting.GRAY)), mouseX, mouseY);
         }
