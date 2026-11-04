@@ -10,9 +10,10 @@ import net.minecraft.server.permissions.Permissions;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * What a right click on the 3D map offers for the spot under the mouse, under its coordinates and biome: a waypoint there (Xaero's Minimap), teleporting
- * there (for players allowed to), copying its coordinates or sharing them in the chat. Drawn like the map's other
- * panels, next to where it was opened.
+ * What a right click on the 3D map offers for the spot under the mouse, under its coordinates and biome: a waypoint
+ * there (one of this mod, or of Xaero's Minimap), teleporting there (for players allowed to), copying its coordinates
+ * or sharing them in the chat. On one of this mod's waypoints: renaming or deleting it, and the same for its place.
+ * Drawn like the map's other panels, next to where it was opened.
  */
 final class MapContextMenu {
     private static final int ROW_HEIGHT = 18;
@@ -42,13 +43,31 @@ final class MapContextMenu {
     private int w;
     private int h;
 
-    /** @param waypoint opens Xaero's screen to add a waypoint at the spot; null without Xaero's Minimap */
-    MapContextMenu(Minecraft minecraft, Spot spot, @Nullable Runnable waypoint) {
+    /**
+     * @param addWaypoint asks for a name and adds one of this mod's waypoints at the spot
+     * @param xaeroWaypoint opens Xaero's screen to add a waypoint at the spot; null without Xaero's Minimap
+     */
+    MapContextMenu(Minecraft minecraft, Spot spot, Runnable addWaypoint, @Nullable Runnable xaeroWaypoint) {
+        this(minecraft, spot, Component.literal(spot.coordinates()), spot.biome == null ? null : biomeName(spot.biome),
+                List.of(new Option(Component.translatable("lodgen.map.menu.addWaypoint"), addWaypoint)), xaeroWaypoint);
+    }
+
+    /** For one of this mod's waypoints: its name on top, then renaming and deleting it, then what any spot offers */
+    static MapContextMenu forWaypoint(Minecraft minecraft, Waypoints.Waypoint waypoint, Runnable rename, Runnable delete) {
+        Spot spot = new Spot(waypoint.x(), waypoint.y(), waypoint.z(), null);
+        return new MapContextMenu(minecraft, spot, Component.literal(waypoint.name()).withColor(waypoint.color()),
+                Component.literal(spot.coordinates()), List.of(new Option(Component.translatable("lodgen.map.menu.rename"), rename),
+                        new Option(Component.translatable("lodgen.map.menu.delete"), delete)), null);
+    }
+
+    private MapContextMenu(Minecraft minecraft, Spot spot, Component title, @Nullable Component subtitle, List<Option> first,
+            @Nullable Runnable xaeroWaypoint) {
         this.spot = spot;
-        this.title = Component.literal(spot.coordinates());
-        this.biome = spot.biome == null ? null : biomeName(spot.biome);
-        if (waypoint != null) {
-            this.options.add(new Option(Component.translatable("lodgen.map.menu.waypoint"), waypoint));
+        this.title = title;
+        this.biome = subtitle;
+        this.options.addAll(first);
+        if (xaeroWaypoint != null) {
+            this.options.add(new Option(Component.translatable("lodgen.map.menu.waypoint"), xaeroWaypoint));
         }
         // Like Xaero's World Map: the command does it, so only for players who may use it, and only onto known ground
         if (spot.y != null && minecraft.player != null && minecraft.player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)) {
@@ -68,7 +87,7 @@ final class MapContextMenu {
     }
 
     /** Translated like the game names biomes (biome.minecraft.plains), also those of mods; else the id */
-    private static Component biomeName(String id) {
+    static Component biomeName(String id) {
         int colon = id.indexOf(':');
         return Component.translatableWithFallback("biome." + id.substring(0, Math.max(colon, 0)) + "." + id.substring(colon + 1), id);
     }

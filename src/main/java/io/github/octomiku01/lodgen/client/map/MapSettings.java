@@ -28,6 +28,8 @@ public final class MapSettings {
     TimeOfDay timeOfDay = TimeOfDay.DAY;
     /** Whether to show where the structures are, as far as the server says */
     StructureMarkers structureMarkers = StructureMarkers.AUTO;
+    /** Show the own waypoints in the game too, with their name and distance */
+    boolean waypointsInGame = true;
 
     /** When the map shows structures */
     public enum StructureMarkers {
@@ -131,6 +133,15 @@ public final class MapSettings {
 
     boolean structuresShown(Minecraft minecraft) {
         return this.structureMarkers.shown(minecraft);
+    }
+
+    public boolean waypointsInGame() {
+        return this.waypointsInGame;
+    }
+
+    void toggleWaypointsInGame() {
+        this.waypointsInGame = !this.waypointsInGame;
+        this.save();
     }
 
     void cycleStructures() {
