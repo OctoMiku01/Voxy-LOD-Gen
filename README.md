@@ -48,7 +48,7 @@ the LODs alone in front of a plain background, as packs draw clouds and haze of 
 terrain around where it looks is generated first, also beyond `radius` (up to `mapRadius` from you): move it somewhere
 unexplored and watch the land appear. Every player in the dimension shows on it with their face and name (others only
 with `farPlayers` on). Both need the mod on the server, which then also limits them. A right click on the map opens a
-menu for the spot it points at, with the height of the ground there: add a waypoint (with
+menu for the spot it points at, with the height and biome of the ground there: add a waypoint (with
 [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) installed), teleport there (where you may use `/tp`), copy
 its coordinates or share them in the chat. The structures in the LODs (villages, temples, strongholds...) show on
 it too, each with an item that stands for it, and its name and place under the mouse; in survival and adventure mode they
