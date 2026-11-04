@@ -109,6 +109,7 @@ public class MapScreen extends Screen {
     private int timeRowY = -1;
     private int lodsRowY = -1;
     private int structuresRowY = -1;
+    private int waypointsRowY = -1;
     /** The structure markers drawn in the last frame */
     private Set<MapStructures.Shown> shownStructures = Set.of();
     private int focusTicks;
@@ -168,6 +169,7 @@ public class MapScreen extends Screen {
         syncWorldCamera();
         checkNetherCut();
         drawStructures(g, mouseX, mouseY);
+        drawWaypoints(g, mouseX, mouseY);
         drawPlayers(g, delta);
         drawWorldViewerOverlay(g, mouseX, mouseY);
         if (contextMenu != null) {
@@ -323,13 +325,37 @@ public class MapScreen extends Screen {
 
     /** Opens the menu for the spot under the mouse, see {@link MapContextMenu} */
     private void openContextMenu(double mouseX, double mouseY) {
+        Waypoints.Waypoint waypoint = waypointAt(mouseX, mouseY);
+        if (waypoint != null) {
+            contextMenu = MapContextMenu.forWaypoint(minecraft, waypoint, () -> askName(Component.translatable("lodgen.map.waypoint.rename"),
+                    waypoint.name(), name -> Waypoints.rename(minecraft, waypoint, name)), () -> Waypoints.remove(minecraft, waypoint));
+            contextMenu.place(minecraft, this, mouseX, mouseY);
+            return;
+        }
         MapContextMenu.Spot spot = spotAt(mouseX, mouseY);
         if (spot == null) {
             contextMenu = null;
             return;
         }
-        contextMenu = new MapContextMenu(minecraft, spot, XaeroWaypoints.available() ? () -> addWaypoint(spot) : null);
+        contextMenu = new MapContextMenu(minecraft, spot, () -> addOwnWaypoint(spot), XaeroWaypoints.available() ? () -> addWaypoint(spot) : null);
         contextMenu.place(minecraft, this, mouseX, mouseY);
+    }
+
+    /** Asks for a name, its biome's to begin with, and adds one of this mod's waypoints at the spot */
+    private void addOwnWaypoint(MapContextMenu.Spot spot) {
+        String initial = spot.biome() != null ? MapContextMenu.biomeName(spot.biome()).getString()
+                : Component.translatable("lodgen.map.waypoint.default").getString();
+        int y = spot.y() != null ? spot.y() : minecraft.level == null ? 64 : minecraft.level.getSeaLevel();
+        askName(Component.translatable("lodgen.map.waypoint.new"), initial, name -> Waypoints.add(minecraft, name, spot.x(), y, spot.z()));
+    }
+
+    /** Opens a screen asking for a name over the map; the map comes back once it closes */
+    private void askName(Component title, String initial, java.util.function.Consumer<String> onDone) {
+        dragging = false;
+        middleDragging = false;
+        handingOver = true;
+        keptOpen = this;
+        minecraft.gui.setScreen(new WaypointNameScreen(this, title, initial, onDone));
     }
 
     /** Opens Xaero's screen to add a waypoint at the spot; the map comes back once it closes */
@@ -485,6 +511,57 @@ public class MapScreen extends Screen {
         }
         drawn.computeIfAbsent(((long) cellX << 32) ^ (cellY & 0xFFFFFFFFL), cell -> new ArrayList<>(2)).add(new int[] {x, y, spacing});
         return true;
+    }
+
+    /** Where each waypoint was drawn in the last frame, for finding the one under the mouse */
+    private record DrawnWaypoint(Waypoints.Waypoint waypoint, int x, int y) {
+    }
+
+    private List<DrawnWaypoint> drawnWaypoints = List.of();
+
+    /** The player's own waypoints: a diamond in its colour on the spot, its name above; place and distance under the mouse */
+    private void drawWaypoints(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        List<DrawnWaypoint> drawn = new ArrayList<>();
+        for (Waypoints.Waypoint waypoint : Waypoints.current(minecraft)) {
+            if (isNether() && waypoint.y() > netherCut) {
+                continue;
+            }
+            double[] screen = screenPointOf(new Vec3(waypoint.x() + 0.5, waypoint.y(), waypoint.z() + 0.5));
+            if (screen == null || screen[0] < -40 || screen[0] > width + 40 || screen[1] < -20 || screen[1] > height + 20) {
+                continue;
+            }
+            int x = (int) Math.round(screen[0]);
+            int y = (int) Math.round(screen[1]);
+            WaypointHud.drawDiamond(g, x, y, 5, waypoint.color());
+            Component name = Component.literal(waypoint.name());
+            int nameWidth = minecraft.font.width(name);
+            g.fill(x - nameWidth / 2 - 2, y - 18, x + nameWidth / 2 + 2, y - 8, 0x99030914);
+            g.centeredText(minecraft.font, name, x, y - 17, waypoint.color());
+            drawn.add(new DrawnWaypoint(waypoint, x, y));
+        }
+        drawnWaypoints = drawn;
+        Waypoints.Waypoint hovered = contextMenu == null ? waypointAt(mouseX, mouseY) : null;
+        if (hovered != null && minecraft.player != null) {
+            int distance = (int) Math.round(Math.sqrt(minecraft.player.distanceToSqr(hovered.x() + 0.5, hovered.y(), hovered.z() + 0.5)));
+            g.setComponentTooltipForNextFrame(minecraft.font, List.of(Component.literal(hovered.name()).withColor(hovered.color()),
+                    Component.literal(hovered.x() + " / " + hovered.y() + " / " + hovered.z() + "  (" + distance + " m)").withStyle(ChatFormatting.GRAY)),
+                    mouseX, mouseY);
+        }
+    }
+
+    /** The waypoint drawn nearest to the mouse, if one is close enough to be meant */
+    private Waypoints.Waypoint waypointAt(double mouseX, double mouseY) {
+        DrawnWaypoint best = null;
+        double bestDistance = 8 * 8;
+        for (DrawnWaypoint drawn : drawnWaypoints) {
+            double dx = drawn.x - mouseX;
+            double dy = drawn.y - mouseY;
+            if (dx * dx + dy * dy < bestDistance) {
+                best = drawn;
+                bestDistance = dx * dx + dy * dy;
+            }
+        }
+        return best == null ? null : best.waypoint;
     }
 
     /**
@@ -778,7 +855,7 @@ public class MapScreen extends Screen {
     private void drawSettingsPanel(GuiGraphicsExtractor g, int footerTop) {
         MapSettings settings = MapSettings.get();
         settingsPanelW = Math.min(360, width - HUD_MARGIN * 2);
-        settingsPanelH = 166;
+        settingsPanelH = 190;
         settingsPanelX = width - settingsPanelW - HUD_MARGIN;
         settingsPanelY = Math.max(HUD_MARGIN, footerTop - settingsPanelH - HUD_GAP);
         drawGlassPanel(g, settingsPanelX, settingsPanelY, settingsPanelW, settingsPanelH, 0xDD030914, 0xFF3BA4FF);
@@ -790,12 +867,14 @@ public class MapScreen extends Screen {
         timeRowY = y + 68;
         lodsRowY = y + 92;
         structuresRowY = y + 116;
+        waypointsRowY = y + 140;
         g.text(minecraft.font, Component.translatable("lodgen.map.settings.title"), x, y, 0xFFFFFFFF);
         drawSettingValue(g, x, pauseRowY, "lodgen.map.settings.pause", onOff(settings.pauseSingleplayer), false);
         drawSettingValue(g, x, speedRowY, "lodgen.map.settings.speed", String.format("%.2fx", settings.cameraSpeed), true);
         drawSettingValue(g, x, timeRowY, "lodgen.map.settings.time", settings.timeOfDay.label().getString(), false);
         drawSettingValue(g, x, lodsRowY, "lodgen.map.settings.onlyLods", onOff(settings.onlyLods), false);
         drawSettingValue(g, x, structuresRowY, "lodgen.map.settings.structures", settings.structureMarkers.label(minecraft).getString(), false);
+        drawSettingValue(g, x, waypointsRowY, "lodgen.map.settings.waypointsInGame", onOff(settings.waypointsInGame), false);
     }
 
     private void drawSettingValue(GuiGraphicsExtractor g, int x, int y, String labelKey, String value, boolean plusMinus) {
@@ -921,6 +1000,8 @@ public class MapScreen extends Screen {
             }
         } else if (isInsideSettingsRow(mouseX, mouseY, structuresRowY)) {
             settings.cycleStructures();
+        } else if (isInsideSettingsRow(mouseX, mouseY, waypointsRowY)) {
+            settings.toggleWaypointsInGame();
         }
         return true;
     }

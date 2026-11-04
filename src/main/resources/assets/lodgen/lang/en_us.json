@@ -100,7 +100,7 @@
   "config.lodgen.seconds": "%s s",
   "lodgen.map.key.menu.button": "RMB",
   "lodgen.map.key.menu": "menu",
-  "lodgen.map.menu.waypoint": "Add waypoint",
+  "lodgen.map.menu.waypoint": "Waypoint in Xaero's Minimap",
   "lodgen.map.menu.teleport": "Teleport here",
   "lodgen.map.menu.copy": "Copy coordinates",
   "lodgen.map.menu.share": "Share in chat",
@@ -145,5 +145,12 @@
   "lodgen.map.structures.on": "On",
   "lodgen.map.structures.off": "Off",
   "lodgen.map.structures.autoNow": "%s (%s)",
-  "lodgen.structure.minecraft.abandoned_camp": "Abandoned Camp"
+  "lodgen.structure.minecraft.abandoned_camp": "Abandoned Camp",
+  "lodgen.map.menu.addWaypoint": "Set waypoint",
+  "lodgen.map.menu.rename": "Rename",
+  "lodgen.map.menu.delete": "Delete",
+  "lodgen.map.waypoint.new": "Name of the waypoint",
+  "lodgen.map.waypoint.rename": "New name of the waypoint",
+  "lodgen.map.waypoint.default": "Waypoint",
+  "lodgen.map.settings.waypointsInGame": "Waypoints in the game"
 }
