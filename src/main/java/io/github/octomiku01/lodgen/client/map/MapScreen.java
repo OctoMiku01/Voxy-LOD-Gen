@@ -4,7 +4,10 @@ import io.github.octomiku01.lodgen.MapFocusPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import io.github.octomiku01.lodgen.client.FarEntities;
 import io.github.octomiku01.lodgen.MapPlayersPayload;
+import io.github.octomiku01.lodgen.StructureMarkers;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +25,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
@@ -40,6 +44,8 @@ public class MapScreen extends Screen {
     private static final double MAX_KEYBOARD_CAMERA_SPEED = 640.0;
     private static final double MAX_DRAG_STEP_BLOCKS = 1536.0;
     private static final int SETTINGS_ROW_HEIGHT = 24;
+    /** Structure markers closer together than this many pixels are left out but one */
+    private static final int STRUCTURE_SPACING = 16;
     private static final int SPEED_BUTTON_SIZE = 18;
     private static final int HUD_MARGIN = 12;
     private static final int HUD_GAP = 6;
@@ -99,6 +105,7 @@ public class MapScreen extends Screen {
     private int speedRowY = -1;
     private int timeRowY = -1;
     private int lodsRowY = -1;
+    private int structuresRowY = -1;
     private int focusTicks;
     private int cutSliderX = -1;
     private int cutSliderY = -1;
@@ -155,6 +162,7 @@ public class MapScreen extends Screen {
         updateSmoothControls();
         syncWorldCamera();
         checkNetherCut();
+        drawStructures(g, mouseX, mouseY);
         drawPlayers(g, delta);
         drawWorldViewerOverlay(g, mouseX, mouseY);
         if (contextMenu != null) {
@@ -356,6 +364,79 @@ public class MapScreen extends Screen {
         double ndcX = (Math.cos(viewYaw) * dx + Math.sin(viewYaw) * dz) / (depth * tanX);
         double ndcY = (-Math.sin(viewYaw) * Math.sin(pitch) * dx + Math.cos(pitch) * dy + Math.cos(viewYaw) * Math.sin(pitch) * dz) / (depth * tanY);
         return new double[] {(1.0 - ndcX) * width / 2.0, (1.0 - ndcY) * height / 2.0};
+    }
+
+    /**
+     * The structures the server told about, each with an item that stands for it, and its name and place when the
+     * mouse is on it. Where they crowd (zoomed far out) only one of those close together is drawn, the same one each
+     * frame, so they do not flicker.
+     */
+    private void drawStructures(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        if (!MapSettings.get().structures() || minecraft.level == null) {
+            return;
+        }
+        List<MapStructures.Shown> markers = new ArrayList<>(MapStructures.current(minecraft));
+        if (markers.isEmpty()) {
+            return;
+        }
+        markers.sort(Comparator.comparingInt((MapStructures.Shown shown) -> shown.marker().x()).thenComparingInt(shown -> shown.marker().z()));
+        Long2ObjectOpenHashMap<int[]> drawn = new Long2ObjectOpenHashMap<>();
+        MapStructures.Shown hovered = null;
+        int hoveredX = 0;
+        int hoveredY = 0;
+        double hoveredDistance = STRUCTURE_SPACING * STRUCTURE_SPACING / 4.0;
+        for (MapStructures.Shown shown : markers) {
+            StructureMarkers.Marker marker = shown.marker();
+            if (isNether() && marker.y() > netherCut) {
+                // Above the cut, which is not shown
+                continue;
+            }
+            double[] screen = screenPointOf(new Vec3(marker.x() + 0.5, marker.y(), marker.z() + 0.5));
+            if (screen == null || screen[0] < -10 || screen[0] > width + 10 || screen[1] < -10 || screen[1] > height + 10) {
+                continue;
+            }
+            int x = (int) Math.round(screen[0]);
+            int y = (int) Math.round(screen[1]);
+            if (!claimSpot(drawn, x, y)) {
+                continue;
+            }
+            g.fill(x - 9, y - 9, x + 9, y + 9, 0x99030914);
+            g.item(shown.icon(), x - 8, y - 8);
+            double distance = (mouseX - x) * (double) (mouseX - x) + (mouseY - y) * (double) (mouseY - y);
+            if (distance < hoveredDistance) {
+                hovered = shown;
+                hoveredX = x;
+                hoveredY = y;
+                hoveredDistance = distance;
+            }
+        }
+        if (hovered != null && contextMenu == null) {
+            StructureMarkers.Marker marker = hovered.marker();
+            g.fill(hoveredX - 10, hoveredY - 10, hoveredX + 10, hoveredY + 10, 0x557DEBFF);
+            g.item(hovered.icon(), hoveredX - 8, hoveredY - 8);
+            g.setComponentTooltipForNextFrame(minecraft.font, List.of(hovered.name(),
+                    Component.literal(marker.x() + " / " + marker.y() + " / " + marker.z()).withStyle(ChatFormatting.GRAY)), mouseX, mouseY);
+        }
+    }
+
+    /** Whether no marker was drawn yet within STRUCTURE_SPACING pixels of this spot; if so, it is taken now */
+    private static boolean claimSpot(Long2ObjectOpenHashMap<int[]> drawn, int x, int y) {
+        int cellX = Math.floorDiv(x, STRUCTURE_SPACING);
+        int cellY = Math.floorDiv(y, STRUCTURE_SPACING);
+        for (int cx = cellX - 1; cx <= cellX + 1; cx++) {
+            for (int cy = cellY - 1; cy <= cellY + 1; cy++) {
+                int[] other = drawn.get(((long) cx << 32) ^ (cy & 0xFFFFFFFFL));
+                if (other != null && Math.abs(other[0] - x) < STRUCTURE_SPACING && Math.abs(other[1] - y) < STRUCTURE_SPACING) {
+                    return false;
+                }
+            }
+        }
+        long cell = ((long) cellX << 32) ^ (cellY & 0xFFFFFFFFL);
+        if (drawn.containsKey(cell)) {
+            return false;
+        }
+        drawn.put(cell, new int[] {x, y});
+        return true;
     }
 
     /**
@@ -649,7 +730,7 @@ public class MapScreen extends Screen {
     private void drawSettingsPanel(GuiGraphicsExtractor g, int footerTop) {
         MapSettings settings = MapSettings.get();
         settingsPanelW = Math.min(360, width - HUD_MARGIN * 2);
-        settingsPanelH = 142;
+        settingsPanelH = 166;
         settingsPanelX = width - settingsPanelW - HUD_MARGIN;
         settingsPanelY = Math.max(HUD_MARGIN, footerTop - settingsPanelH - HUD_GAP);
         drawGlassPanel(g, settingsPanelX, settingsPanelY, settingsPanelW, settingsPanelH, 0xDD030914, 0xFF3BA4FF);
@@ -660,11 +741,13 @@ public class MapScreen extends Screen {
         speedRowY = y + 44;
         timeRowY = y + 68;
         lodsRowY = y + 92;
+        structuresRowY = y + 116;
         g.text(minecraft.font, Component.translatable("lodgen.map.settings.title"), x, y, 0xFFFFFFFF);
         drawSettingValue(g, x, pauseRowY, "lodgen.map.settings.pause", onOff(settings.pauseSingleplayer), false);
         drawSettingValue(g, x, speedRowY, "lodgen.map.settings.speed", String.format("%.2fx", settings.cameraSpeed), true);
         drawSettingValue(g, x, timeRowY, "lodgen.map.settings.time", settings.timeOfDay.label().getString(), false);
         drawSettingValue(g, x, lodsRowY, "lodgen.map.settings.onlyLods", onOff(settings.onlyLods), false);
+        drawSettingValue(g, x, structuresRowY, "lodgen.map.settings.structures", onOff(settings.structures), false);
     }
 
     private void drawSettingValue(GuiGraphicsExtractor g, int x, int y, String labelKey, String value, boolean plusMinus) {
@@ -788,6 +871,8 @@ public class MapScreen extends Screen {
             if (settings.onlyLods()) {
                 VoxyRange.ingestLoadedChunks(minecraft);
             }
+        } else if (isInsideSettingsRow(mouseX, mouseY, structuresRowY)) {
+            settings.toggleStructures();
         }
         return true;
     }

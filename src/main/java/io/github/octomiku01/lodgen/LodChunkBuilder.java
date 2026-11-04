@@ -123,6 +123,7 @@ final class LodChunkBuilder {
         if (tag == null) {
             return null;
         }
+        StructureMarkers.noteSaved(this.level, tag);
         SerializableChunkData data = SerializableChunkData.parse(this.level, this.level.palettedContainerFactory(), tag);
         ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, this.level, this.level.palettedContainerFactory(), null);
         LevelChunkSection[] sections = chunk.getSections();

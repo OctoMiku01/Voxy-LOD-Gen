@@ -34,6 +34,7 @@ public class LodGen implements ModInitializer {
         PayloadTypeRegistry.clientboundPlay().register(FarEntitiesPayload.TYPE, FarEntitiesPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(MapPlayersPayload.TYPE, MapPlayersPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(MapPlayersPayload.TYPE_FACING, MapPlayersPayload.CODEC_FACING);
+        PayloadTypeRegistry.clientboundPlay().register(MapStructuresPayload.TYPE, MapStructuresPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(MapFocusPayload.TYPE, MapFocusPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(MapFocusPayload.TYPE, (payload, context) -> {
             if (generator != null) {
@@ -45,6 +46,7 @@ public class LodGen implements ModInitializer {
             // Benchmark mode (-Dlodgen.benchmark=true) measures generation speed without Voxy and without a player
             boolean benchmark = Boolean.getBoolean("lodgen.benchmark");
             LodConfig config = LodConfig.load();
+            StructureMarkers.start(server);
             if (config.enabled) {
                 generator = new LodGenerator(server, config, benchmark);
             }
@@ -56,6 +58,7 @@ public class LodGen implements ModInitializer {
                 generator.stop();
                 generator = null;
             }
+            StructureMarkers.stop();
             farPlayers = null;
         });
 
@@ -64,6 +67,9 @@ public class LodGen implements ModInitializer {
                 generator.onServerTick();
                 if (server.getTickCount() % 20 == 0) {
                     generator.sendMapPlayers();
+                }
+                if (server.getTickCount() % 1200 == 0) {
+                    StructureMarkers.save();
                 }
             }
             if (farPlayers != null) {

@@ -25,6 +25,8 @@ public final class MapSettings {
      */
     boolean onlyLods = true;
     TimeOfDay timeOfDay = TimeOfDay.DAY;
+    /** Show where the structures are, as far as the server says */
+    boolean structures = true;
 
     /** The time of day the map shows */
     public enum TimeOfDay {
@@ -95,6 +97,15 @@ public final class MapSettings {
 
     public TimeOfDay timeOfDay() {
         return this.timeOfDay;
+    }
+
+    boolean structures() {
+        return this.structures;
+    }
+
+    void toggleStructures() {
+        this.structures = !this.structures;
+        this.save();
     }
 
     void togglePause() {

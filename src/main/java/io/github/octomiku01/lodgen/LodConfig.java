@@ -34,6 +34,8 @@ final class LodConfig {
     boolean keepUnderground = false;
     /** No LODs for chunks beyond the world border, where nobody can go */
     boolean worldBorder = true;
+    /** Players with the 3D map open get where the structures in the LODs are, shown as markers */
+    boolean mapStructures = true;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
     int featureRadius = 256;
     /** First terrain quickly up to the radius, then the details up to featureRadius, closest first; the terrain stays

@@ -50,7 +50,9 @@ unexplored and watch the land appear. Every player in the dimension shows on it 
 with `farPlayers` on). Both need the mod on the server, which then also limits them. A right click on the map opens a
 menu for the spot it points at, with the height of the ground there: add a waypoint (with
 [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) installed), teleport there (where you may use `/tp`), copy
-its coordinates or share them in the chat. The map is adapted from
+its coordinates or share them in the chat. The structures in the LODs (villages, temples, strongholds...) show on
+it too, each with an item that stands for it, and its name and place under the mouse; they are switched off in the
+map's settings, or for everyone with `mapStructures`. The map is adapted from
 [3D Maps Voxy Addon](https://github.com/raben12paste/3D-maps-Voxy-Addon) (MIT licensed).
 
 ## Installing
@@ -87,6 +89,7 @@ created on first start:
 | `tileSize` | 16 | Chunks with features are generated in tiles of this size |
 | `viewDistanceMargin` | 0 | Chunks this close beyond the view distance are left to the game |
 | `sendToPlayers` | true | Send LODs to other players |
+| `mapStructures` | true | Players with the 3D map open get where the structures in the LODs are (villages, temples, strongholds...), shown as markers |
 | `farPlayers` | true | Show other players beyond the view distance on the LODs, with what they ride |
 | `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
 | `maxHorizonChunksPerSecondPerPlayer` | 500 | Network limit per player for the horizon, a few dozen bytes per chunk |
