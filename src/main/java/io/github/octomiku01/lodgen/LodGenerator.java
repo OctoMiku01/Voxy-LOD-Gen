@@ -141,7 +141,7 @@ final class LodGenerator {
         int focusZ;
         int focusRadius;
         /** The world border the walks were made for; when it grows, they start again for the new chunks */
-        BorderBounds border = BorderBounds.EVERYWHERE;
+        volatile BorderBounds border = BorderBounds.EVERYWHERE;
         double tokens;
         long lastRefill;
 
@@ -1219,6 +1219,11 @@ final class LodGenerator {
     private void deliver(Task task, @Nullable List<LodChunk> chunks, Recipient recipient) {
         for (int index = 0; index < task.saved.length; index++) {
             if (!task.neededBy(index, recipient.progress)) {
+                continue;
+            }
+            if (!recipient.progress.border.contains(task.minX + index / task.size, task.minZ + index % task.size)) {
+                // Part of a tile that reaches beyond the world border: built for its features, but not sent. Not
+                // marked as done either, so it follows if the border grows
                 continue;
             }
             if (chunks == null) {
