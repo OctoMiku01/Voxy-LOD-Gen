@@ -141,7 +141,7 @@ final class LodGenerator {
         int focusZ;
         int focusRadius;
         /** The world border the walks were made for; when it grows, they start again for the new chunks */
-        volatile BorderBounds border = BorderBounds.EVERYWHERE;
+        BorderBounds border = BorderBounds.EVERYWHERE;
         double tokens;
         long lastRefill;
 
@@ -1205,8 +1205,10 @@ final class LodGenerator {
             if (!this.running) {
                 return;
             }
+            // Where the border is now, also if it moved while the task was being built
+            BorderBounds border = BorderBounds.of(dimension.level, this.config);
             for (Recipient recipient : task.startDelivery()) {
-                this.deliver(task, chunks, recipient);
+                this.deliver(task, chunks, recipient, border);
             }
         } finally {
             this.inFlight.decrementAndGet();
@@ -1216,12 +1218,12 @@ final class LodGenerator {
         }
     }
 
-    private void deliver(Task task, @Nullable List<LodChunk> chunks, Recipient recipient) {
+    private void deliver(Task task, @Nullable List<LodChunk> chunks, Recipient recipient, BorderBounds border) {
         for (int index = 0; index < task.saved.length; index++) {
             if (!task.neededBy(index, recipient.progress)) {
                 continue;
             }
-            if (!recipient.progress.border.contains(task.minX + index / task.size, task.minZ + index % task.size)) {
+            if (!border.contains(task.minX + index / task.size, task.minZ + index % task.size)) {
                 // Part of a tile that reaches beyond the world border: built for its features, but not sent. Not
                 // marked as done either, so it follows if the border grows
                 continue;
