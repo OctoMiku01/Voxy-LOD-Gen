@@ -103,6 +103,11 @@ created on first start:
 - `/lodgen pause` / `/lodgen resume`
 - `/lodgen reset` sends your LODs of the current dimension again, e.g. after deleting Voxy's data or updating this mod
 - `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
+- `/lodgen pregen [radius]` (operators only) prepares what the server keeps for everyone around where it runs (the
+  spawn from the console), up to `horizonRadius` or the given radius in chunks: the structures for the 3D map, then the
+  horizon's samples, so players see both at once when they come. Real LODs are still generated around each player.
+  Uses half the generation's threads and waits while it is paused or the server is slow; `/lodgen pregen stop` stops
+  it, running it again goes on from there
 - `/lodgen bench [radius]` (operators only) measures how fast this computer builds LODs with features around you, with
   the threads of the performance setting; the generation pauses meanwhile. Handy for choosing a performance level and
   for bug reports
