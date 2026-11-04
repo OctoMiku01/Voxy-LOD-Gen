@@ -5,7 +5,9 @@ import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
 import io.github.octomiku01.lodgen.LodHorizonPayload;
 import io.github.octomiku01.lodgen.MapPlayersPayload;
+import io.github.octomiku01.lodgen.MapStructuresPayload;
 import io.github.octomiku01.lodgen.client.map.MapPlayers;
+import io.github.octomiku01.lodgen.client.map.MapStructures;
 import io.github.octomiku01.lodgen.client.map.MapScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
@@ -40,6 +42,7 @@ public class LodGenClient implements ClientModInitializer {
                 ClientHorizonReceiver.clear();
                 FarEntities.reset();
                 MapPlayers.clear();
+                MapStructures.clear();
             });
             ClientPlayNetworking.registerGlobalReceiver(FarEntitiesPayload.TYPE, (payload, context) -> FarEntities.receive(payload, context.client()));
             ClientTickEvents.END_CLIENT_TICK.register(FarEntities::tick);
@@ -48,6 +51,7 @@ public class LodGenClient implements ClientModInitializer {
             // The 3D map is what Voxy renders, seen from high above
             ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE, (payload, context) -> MapPlayers.receive(payload));
             ClientPlayNetworking.registerGlobalReceiver(MapPlayersPayload.TYPE_FACING, (payload, context) -> MapPlayers.receive(payload));
+            ClientPlayNetworking.registerGlobalReceiver(MapStructuresPayload.TYPE, (payload, context) -> MapStructures.receive(payload));
             KeyMapping openMap = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.lodgen.map", InputConstants.Type.KEYBOARD,
                     InputConstants.KEY_M, KeyMapping.Category.register(Identifier.fromNamespaceAndPath("lodgen", "main"))));
             ClientTickEvents.END_CLIENT_TICK.register(client -> {

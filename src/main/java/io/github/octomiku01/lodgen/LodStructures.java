@@ -58,6 +58,10 @@ final class LodStructures extends StructureManager {
             StructureHeights.begin();
             try {
                 this.generator.createStructures(this.level.registryAccess(), this.state, this, chunk, this.level.getStructureTemplateManager(), this.level.dimension());
+                // For the 3D map; the ground under them is found while the heights asked for above are remembered
+                for (StructureStart start : chunk.getAllStarts().values()) {
+                    StructureMarkers.note(this.level, start);
+                }
             } finally {
                 StructureHeights.end();
             }
