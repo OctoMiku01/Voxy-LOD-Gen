@@ -314,18 +314,19 @@ final class LodHorizon {
             }
             String waiting = targets.isEmpty() ? "no players" : this.generator.isPaused() ? "paused" : this.generator.isThrottled() ? "slowed down"
                     : !this.generator.idle() ? "real LODs first" : null;
-            if (waiting != null) {
-                if (!waiting.equals(this.lastWaiting)) {
-                    LodGen.LOGGER.info("Horizon waits: {}", waiting);
-                    this.lastWaiting = waiting;
-                }
+            // While real LODs are made, what /lodgen pregen prepared still goes out: it costs next to nothing
+            boolean onlyPrepared = "real LODs first".equals(waiting);
+            if (waiting != null && !waiting.equals(this.lastWaiting)) {
+                LodGen.LOGGER.info("Horizon waits: {}", onlyPrepared ? waiting + " (prepared parts meanwhile)" : waiting);
+            }
+            this.lastWaiting = waiting;
+            if (waiting != null && !onlyPrepared) {
                 return null;
             }
-            this.lastWaiting = null;
             long now = System.currentTimeMillis();
             for (int k = 0; k < targets.size(); k++) {
                 Target target = targets.get((this.turn + k) % targets.size());
-                @Nullable Job job = this.nextFor(target, now);
+                @Nullable Job job = this.nextFor(target, now, onlyPrepared);
                 if (job != null) {
                     this.turn = (this.turn + k + 1) % targets.size();
                     return job;
@@ -356,7 +357,8 @@ final class LodHorizon {
     }
 
     // Guarded by this
-    private @Nullable Job nextFor(Target target, long now) {
+    /** @param onlyPrepared only a chunk whose samples are stored; the walk stops before the first that is not */
+    private @Nullable Job nextFor(Target target, long now, boolean onlyPrepared) {
         Watcher watcher = this.watcherOf(target);
         if (target.host()) {
             if (VoxySink.backlog() > MAX_VOXY_BACKLOG) {
@@ -390,6 +392,8 @@ final class LodHorizon {
         }
         long reach = border.reach(watcher.centerX, watcher.centerZ);
         while (watcher.ring <= this.toRing) {
+            int ringBefore = watcher.ring;
+            int indexBefore = watcher.index;
             if (watcher.ring > reach) {
                 // Only chunks beyond the world border are left
                 watcher.ring = this.toRing + 1;
@@ -432,6 +436,12 @@ final class LodHorizon {
             boolean explored;
             synchronized (saved) {
                 explored = saved.exists(x, z);
+            }
+            if (onlyPrepared && (explored || this.storeOf(target.level()).get(x, z, step) == null)) {
+                // Would have to be built now: it waits, as does the rest of the walk, until the real LODs are done
+                watcher.ring = ringBefore;
+                watcher.index = indexBefore;
+                return null;
             }
             if (!target.host()) {
                 watcher.tokens -= explored ? REAL_COST : 1;
