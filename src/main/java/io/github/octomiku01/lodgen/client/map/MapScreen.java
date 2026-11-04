@@ -432,8 +432,9 @@ public class MapScreen extends Screen {
         }
     }
 
-    /** A common structure's icon at a little more than half size, without a backdrop */
+    /** A common structure's icon at a little more than half size, on a backdrop to match */
     private static void drawSmallItem(GuiGraphicsExtractor g, MapStructures.Shown shown, int x, int y) {
+        g.fill(x - 6, y - 6, x + 6, y + 6, 0x99030914);
         g.pose().pushMatrix();
         g.pose().translate(x, y);
         g.pose().scale(0.625f, 0.625f);
