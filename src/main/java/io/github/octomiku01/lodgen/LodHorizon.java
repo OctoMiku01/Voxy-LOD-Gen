@@ -317,8 +317,11 @@ final class LodHorizon {
                     : !this.generator.idle() ? "real LODs first" : null;
             // While real LODs are made, what /lodgen pregen prepared still goes out: it costs next to nothing
             boolean onlyPrepared = "real LODs first".equals(waiting);
+            if (onlyPrepared) {
+                waiting = "real LODs first, sends what was prepared";
+            }
             if (waiting != null && !waiting.equals(this.lastWaiting)) {
-                LodGen.LOGGER.info("Horizon waits: {}", onlyPrepared ? waiting + " (prepared parts meanwhile)" : waiting);
+                LodGen.LOGGER.info("Horizon waits: {}", waiting);
             }
             this.lastWaiting = waiting;
             if (waiting != null && !onlyPrepared) {
