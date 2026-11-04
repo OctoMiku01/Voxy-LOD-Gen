@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -42,7 +43,8 @@ import org.jetbrains.annotations.Nullable;
  * Thread safe: workers note structures, the server thread reads them and saves.
  */
 public final class StructureMarkers {
-    private static final int FORMAT = 1;
+    /** 2 adds the regions {@link StructureScan} went through */
+    private static final int FORMAT = 2;
     /** Too many and too small to be worth a marker, mostly hidden underground */
     private static final Set<String> LEFT_OUT = Set.of("minecraft:mineshaft", "minecraft:mineshaft_mesa", "minecraft:buried_treasure",
             "minecraft:nether_fossil");
@@ -55,6 +57,8 @@ public final class StructureMarkers {
         final Path file;
         /** By the chunk the structure starts in */
         final Map<Long, Marker> markers = new ConcurrentHashMap<>();
+        /** Regions of 32 x 32 chunks whose structures were all found; guarded by itself */
+        final LongOpenHashSet scanned = new LongOpenHashSet();
         volatile boolean dirty;
 
         Store(Path file) {
@@ -67,7 +71,8 @@ public final class StructureMarkers {
                 return;
             }
             try (DataInputStream in = new DataInputStream(new BufferedInputStream(new GZIPInputStream(Files.newInputStream(this.file))))) {
-                if (in.readInt() != FORMAT) {
+                int format = in.readInt();
+                if (format != 1 && format != FORMAT) {
                     return;
                 }
                 int ids = in.readInt();
@@ -79,6 +84,12 @@ public final class StructureMarkers {
                 for (int i = 0; i < count; i++) {
                     long chunk = in.readLong();
                     this.markers.put(chunk, new Marker(palette[in.readInt()], in.readInt(), in.readInt(), in.readInt()));
+                }
+                if (format >= 2) {
+                    int regions = in.readInt();
+                    for (int i = 0; i < regions; i++) {
+                        this.scanned.add(in.readLong());
+                    }
                 }
             } catch (IOException | RuntimeException e) {
                 LodGen.LOGGER.warn("Could not read {}, its structures are noted again as LODs are generated", this.file, e);
@@ -94,6 +105,10 @@ public final class StructureMarkers {
                 Files.createDirectories(this.file.getParent());
                 Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");
                 Map<Long, Marker> copy = Map.copyOf(this.markers);
+                long[] regions;
+                synchronized (this.scanned) {
+                    regions = this.scanned.toLongArray();
+                }
                 List<String> palette = new ArrayList<>();
                 Map<String, Integer> index = new HashMap<>();
                 for (Marker marker : copy.values()) {
@@ -116,6 +131,10 @@ public final class StructureMarkers {
                         out.writeInt(marker.x);
                         out.writeInt(marker.y);
                         out.writeInt(marker.z);
+                    }
+                    out.writeInt(regions.length);
+                    for (long region : regions) {
+                        out.writeLong(region);
                     }
                 }
                 Files.move(temp, this.file, StandardCopyOption.REPLACE_EXISTING);
@@ -222,6 +241,27 @@ public final class StructureMarkers {
                 int z = box.getCenter().getZ();
                 put(store, chunk, new Marker(id, x, groundAt(level, x, z, box), z));
             }
+        }
+    }
+
+    /** Whether {@link StructureScan} already found all structures of this region of 32 x 32 chunks */
+    static boolean isScanned(ServerLevel level, long region) {
+        Store store = storeOf(level);
+        if (store == null) {
+            return true;
+        }
+        synchronized (store.scanned) {
+            return store.scanned.contains(region);
+        }
+    }
+
+    static void markScanned(ServerLevel level, long region) {
+        Store store = storeOf(level);
+        if (store != null) {
+            synchronized (store.scanned) {
+                store.scanned.add(region);
+            }
+            store.dirty = true;
         }
     }
 

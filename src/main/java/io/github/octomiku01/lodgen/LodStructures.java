@@ -69,6 +69,11 @@ final class LodStructures extends StructureManager {
         });
     }
 
+    /** Decides which structures start in this chunk, only to note them for the 3D map, see {@link StructureScan} */
+    void findStarts(int chunkX, int chunkZ) {
+        this.startsIn(chunkX, chunkZ);
+    }
+
     /** The structures that reach into this chunk, like vanilla's references step */
     private Map<Structure, List<StructureStart>> reaching(int chunkX, int chunkZ) {
         return this.references.get(LodGenerator.pack(chunkX, chunkZ), key -> this.findReaching(chunkX, chunkZ));

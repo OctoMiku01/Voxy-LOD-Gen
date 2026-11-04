@@ -418,6 +418,8 @@ final class LodGenerator {
     private volatile long lastQueued = System.currentTimeMillis();
     /** Rough LODs beyond the radius, if horizonRadius asks for them */
     private final @Nullable LodHorizon horizon;
+    /** Finds structures for the 3D map where no LOD was generated with this version */
+    private final @Nullable StructureScan structureScan;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
     private final AtomicInteger inFlight = new AtomicInteger();
@@ -462,10 +464,23 @@ final class LodGenerator {
         this.scheduler.start();
         LodGen.LOGGER.info("Generating LODs up to {} chunks away with {} threads ({})", config.radius, config.workerThreads(), config.performance);
         this.horizon = !benchmark && config.horizonRadius > config.radius ? new LodHorizon(this, config) : null;
+        this.structureScan = config.structures && config.mapStructures ? new StructureScan(this, config) : null;
     }
 
     List<LodHorizon.Target> horizonTargets() {
         return this.horizonTargets;
+    }
+
+    /** Where a player who gets LODs is */
+    record Spot(ServerLevel level, int chunkX, int chunkZ) {
+    }
+
+    List<Spot> playerSpots() {
+        List<Spot> spots = new ArrayList<>();
+        for (Viewer viewer : this.viewers) {
+            spots.add(new Spot(viewer.level, viewer.chunkX, viewer.chunkZ));
+        }
+        return spots;
     }
 
     /** Whether this player already got a real LOD of the chunk in their dimension (generated or read from the save) */
@@ -776,6 +791,9 @@ final class LodGenerator {
         this.running = false;
         if (this.horizon != null) {
             this.horizon.stop();
+        }
+        if (this.structureScan != null) {
+            this.structureScan.stop();
         }
         this.scheduler.interrupt();
         this.workers.shutdown();
