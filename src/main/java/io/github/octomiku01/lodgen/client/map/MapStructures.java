@@ -43,8 +43,11 @@ public final class MapStructures {
         ICONS.put("trial_chambers", Items.TRIAL_KEY);
     }
 
+    /** Common and small: shown smaller, so they do not crowd out the others (the ocean is full of ruins and wrecks) */
+    private static final List<String> MINOR = List.of("ocean_ruin", "shipwreck", "ruined_portal");
+
     /** One marker as the map shows it */
-    record Shown(StructureMarkers.Marker marker, ItemStack icon, Component name) {
+    record Shown(StructureMarkers.Marker marker, ItemStack icon, Component name, boolean minor) {
     }
 
     private static final Map<ResourceKey<Level>, Map<Long, Shown>> BY_DIMENSION = new HashMap<>();
@@ -58,7 +61,7 @@ public final class MapStructures {
             markers.clear();
         }
         for (StructureMarkers.Marker marker : payload.markers()) {
-            markers.put(key(marker), new Shown(marker, new ItemStack(iconOf(marker.id())), nameOf(marker.id())));
+            markers.put(key(marker), new Shown(marker, new ItemStack(iconOf(marker.id())), nameOf(marker.id()), isMinor(marker.id())));
         }
     }
 
@@ -76,6 +79,11 @@ public final class MapStructures {
 
     private static long key(StructureMarkers.Marker marker) {
         return ((long) marker.x() << 32) ^ (marker.z() & 0xFFFFFFFFL);
+    }
+
+    private static boolean isMinor(String id) {
+        String path = id.substring(id.indexOf(':') + 1);
+        return id.startsWith("minecraft:") && MINOR.stream().anyMatch(path::startsWith);
     }
 
     /** Vanilla's by name; those of mods too where their name says what they are, else a compass */

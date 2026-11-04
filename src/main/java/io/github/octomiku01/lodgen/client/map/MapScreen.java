@@ -47,6 +47,7 @@ public class MapScreen extends Screen {
     private static final int SETTINGS_ROW_HEIGHT = 24;
     /** Structure markers closer together than this many pixels are left out but one */
     private static final int STRUCTURE_SPACING = 16;
+    private static final int MINOR_STRUCTURE_SPACING = 11;
     private static final int SPEED_BUTTON_SIZE = 18;
     private static final int HUD_MARGIN = 12;
     private static final int HUD_GAP = 6;
@@ -367,7 +368,7 @@ public class MapScreen extends Screen {
     /**
      * The structures the server told about, each with an item that stands for it, and its name and place when the
      * mouse is on it. Where they crowd (zoomed far out) only one of those close together is drawn, the same one each
-     * frame, so they do not flicker.
+     * frame, so they do not flicker; the big ones before the common small ones.
      */
     private void drawStructures(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         if (!MapSettings.get().structures() || minecraft.level == null) {
@@ -377,7 +378,8 @@ public class MapScreen extends Screen {
         if (markers.isEmpty()) {
             return;
         }
-        markers.sort(Comparator.comparingInt((MapStructures.Shown shown) -> shown.marker().x()).thenComparingInt(shown -> shown.marker().z()));
+        markers.sort(Comparator.comparing(MapStructures.Shown::minor).thenComparingInt(shown -> shown.marker().x())
+                .thenComparingInt(shown -> shown.marker().z()));
         Long2ObjectOpenHashMap<int[]> drawn = new Long2ObjectOpenHashMap<>();
         MapStructures.Shown hovered = null;
         int hoveredX = 0;
@@ -395,11 +397,15 @@ public class MapScreen extends Screen {
             }
             int x = (int) Math.round(screen[0]);
             int y = (int) Math.round(screen[1]);
-            if (!claimSpot(drawn, x, y)) {
+            if (!claimSpot(drawn, x, y, shown.minor() ? MINOR_STRUCTURE_SPACING : STRUCTURE_SPACING)) {
                 continue;
             }
-            g.fill(x - 9, y - 9, x + 9, y + 9, 0x99030914);
-            g.item(shown.icon(), x - 8, y - 8);
+            if (shown.minor()) {
+                drawSmallItem(g, shown, x, y);
+            } else {
+                g.fill(x - 9, y - 9, x + 9, y + 9, 0x99030914);
+                g.item(shown.icon(), x - 8, y - 8);
+            }
             double distance = (mouseX - x) * (double) (mouseX - x) + (mouseY - y) * (double) (mouseY - y);
             if (distance < hoveredDistance) {
                 hovered = shown;
@@ -408,6 +414,8 @@ public class MapScreen extends Screen {
                 hoveredDistance = distance;
             }
         }
+        // Items are drawn above everything else of their stratum: the players and the HUD go on a new one
+        g.nextStratum();
         if (hovered != null && contextMenu == null) {
             StructureMarkers.Marker marker = hovered.marker();
             g.fill(hoveredX - 10, hoveredY - 10, hoveredX + 10, hoveredY + 10, 0x557DEBFF);
@@ -417,14 +425,23 @@ public class MapScreen extends Screen {
         }
     }
 
-    /** Whether no marker was drawn yet within STRUCTURE_SPACING pixels of this spot; if so, it is taken now */
-    private static boolean claimSpot(Long2ObjectOpenHashMap<int[]> drawn, int x, int y) {
+    /** A common structure's icon at a little more than half size, without a backdrop */
+    private static void drawSmallItem(GuiGraphicsExtractor g, MapStructures.Shown shown, int x, int y) {
+        g.pose().pushMatrix();
+        g.pose().translate(x, y);
+        g.pose().scale(0.625f, 0.625f);
+        g.item(shown.icon(), -8, -8);
+        g.pose().popMatrix();
+    }
+
+    /** Whether no marker was drawn yet within this many pixels of this spot; if so, it is taken now */
+    private static boolean claimSpot(Long2ObjectOpenHashMap<int[]> drawn, int x, int y, int spacing) {
         int cellX = Math.floorDiv(x, STRUCTURE_SPACING);
         int cellY = Math.floorDiv(y, STRUCTURE_SPACING);
         for (int cx = cellX - 1; cx <= cellX + 1; cx++) {
             for (int cy = cellY - 1; cy <= cellY + 1; cy++) {
                 int[] other = drawn.get(((long) cx << 32) ^ (cy & 0xFFFFFFFFL));
-                if (other != null && Math.abs(other[0] - x) < STRUCTURE_SPACING && Math.abs(other[1] - y) < STRUCTURE_SPACING) {
+                if (other != null && Math.abs(other[0] - x) < Math.max(spacing, other[2]) && Math.abs(other[1] - y) < Math.max(spacing, other[2])) {
                     return false;
                 }
             }
@@ -433,7 +450,7 @@ public class MapScreen extends Screen {
         if (drawn.containsKey(cell)) {
             return false;
         }
-        drawn.put(cell, new int[] {x, y});
+        drawn.put(cell, new int[] {x, y, spacing});
         return true;
     }
 
