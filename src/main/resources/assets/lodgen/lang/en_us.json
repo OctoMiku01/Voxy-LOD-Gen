@@ -140,5 +140,9 @@
   "lodgen.structure.minecraft.end_city": "End City",
   "lodgen.structure.minecraft.ancient_city": "Ancient City",
   "lodgen.structure.minecraft.trail_ruins": "Trail Ruins",
-  "lodgen.structure.minecraft.trial_chambers": "Trial Chambers"
+  "lodgen.structure.minecraft.trial_chambers": "Trial Chambers",
+  "lodgen.map.structures.auto": "Auto",
+  "lodgen.map.structures.on": "On",
+  "lodgen.map.structures.off": "Off",
+  "lodgen.map.structures.autoNow": "%s (%s)"
 }

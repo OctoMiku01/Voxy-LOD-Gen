@@ -51,8 +51,9 @@ with `farPlayers` on). Both need the mod on the server, which then also limits t
 menu for the spot it points at, with the height of the ground there: add a waypoint (with
 [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) installed), teleport there (where you may use `/tp`), copy
 its coordinates or share them in the chat. The structures in the LODs (villages, temples, strongholds...) show on
-it too, each with an item that stands for it, and its name and place under the mouse; they are switched off in the
-map's settings, or for everyone with `mapStructures`. The map is adapted from
+it too, each with an item that stands for it, and its name and place under the mouse; in survival and adventure mode they
+stay hidden unless switched on in the map's settings, and the server can leave them out for everyone with
+`mapStructures`. The map is adapted from
 [3D Maps Voxy Addon](https://github.com/raben12paste/3D-maps-Voxy-Addon) (MIT licensed).
 
 ## Installing

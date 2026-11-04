@@ -140,5 +140,9 @@
   "lodgen.structure.minecraft.end_city": "Endsiedlung",
   "lodgen.structure.minecraft.ancient_city": "Antike Stätte",
   "lodgen.structure.minecraft.trail_ruins": "Pfadruine",
-  "lodgen.structure.minecraft.trial_chambers": "Prüfungskammern"
+  "lodgen.structure.minecraft.trial_chambers": "Prüfungskammern",
+  "lodgen.map.structures.auto": "Auto",
+  "lodgen.map.structures.on": "An",
+  "lodgen.map.structures.off": "Aus",
+  "lodgen.map.structures.autoNow": "%s (%s)"
 }

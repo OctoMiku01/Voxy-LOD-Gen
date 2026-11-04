@@ -377,7 +377,7 @@ public class MapScreen extends Screen {
      * frame, so they do not flicker; the big ones before the common small ones.
      */
     private void drawStructures(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-        if (!MapSettings.get().structures() || minecraft.level == null) {
+        if (minecraft.level == null || !MapSettings.get().structuresShown(minecraft)) {
             return;
         }
         List<MapStructures.Shown> markers = new ArrayList<>(MapStructures.current(minecraft));
@@ -794,7 +794,7 @@ public class MapScreen extends Screen {
         drawSettingValue(g, x, speedRowY, "lodgen.map.settings.speed", String.format("%.2fx", settings.cameraSpeed), true);
         drawSettingValue(g, x, timeRowY, "lodgen.map.settings.time", settings.timeOfDay.label().getString(), false);
         drawSettingValue(g, x, lodsRowY, "lodgen.map.settings.onlyLods", onOff(settings.onlyLods), false);
-        drawSettingValue(g, x, structuresRowY, "lodgen.map.settings.structures", onOff(settings.structures), false);
+        drawSettingValue(g, x, structuresRowY, "lodgen.map.settings.structures", settings.structureMarkers.label(minecraft).getString(), false);
     }
 
     private void drawSettingValue(GuiGraphicsExtractor g, int x, int y, String labelKey, String value, boolean plusMinus) {
@@ -919,7 +919,7 @@ public class MapScreen extends Screen {
                 VoxyRange.ingestLoadedChunks(minecraft);
             }
         } else if (isInsideSettingsRow(mouseX, mouseY, structuresRowY)) {
-            settings.toggleStructures();
+            settings.cycleStructures();
         }
         return true;
     }

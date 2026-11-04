@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 
 /** The 3D map's own settings, changed on the map itself; kept in {@code config/lodgen-map.json} */
@@ -25,8 +26,34 @@ public final class MapSettings {
      */
     boolean onlyLods = true;
     TimeOfDay timeOfDay = TimeOfDay.DAY;
-    /** Show where the structures are, as far as the server says */
-    boolean structures = true;
+    /** Whether to show where the structures are, as far as the server says */
+    StructureMarkers structureMarkers = StructureMarkers.AUTO;
+
+    /** When the map shows structures */
+    public enum StructureMarkers {
+        /** In creative and spectator mode; in survival finding them is part of the game */
+        AUTO,
+        ON,
+        OFF;
+
+        boolean shown(Minecraft minecraft) {
+            return switch (this) {
+                case ON -> true;
+                case OFF -> false;
+                case AUTO -> minecraft.gameMode != null && !minecraft.gameMode.getPlayerMode().isSurvival();
+            };
+        }
+
+        Component label(Minecraft minecraft) {
+            Component name = Component.translatable("lodgen.map.structures." + this.name().toLowerCase(java.util.Locale.ROOT));
+            if (this != AUTO) {
+                return name;
+            }
+            // Auto says what it does in the current game mode
+            return Component.translatable("lodgen.map.structures.autoNow", name,
+                    Component.translatable(this.shown(minecraft) ? "options.on" : "options.off"));
+        }
+    }
 
     /** The time of day the map shows */
     public enum TimeOfDay {
@@ -74,6 +101,9 @@ public final class MapSettings {
         if (settings.timeOfDay == null) {
             settings.timeOfDay = TimeOfDay.DAY;
         }
+        if (settings.structureMarkers == null) {
+            settings.structureMarkers = StructureMarkers.AUTO;
+        }
         return settings;
     }
 
@@ -99,12 +129,13 @@ public final class MapSettings {
         return this.timeOfDay;
     }
 
-    boolean structures() {
-        return this.structures;
+    boolean structuresShown(Minecraft minecraft) {
+        return this.structureMarkers.shown(minecraft);
     }
 
-    void toggleStructures() {
-        this.structures = !this.structures;
+    void cycleStructures() {
+        StructureMarkers[] values = StructureMarkers.values();
+        this.structureMarkers = values[(this.structureMarkers.ordinal() + 1) % values.length];
         this.save();
     }
 
