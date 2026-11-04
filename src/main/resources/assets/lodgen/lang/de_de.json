@@ -20,6 +20,8 @@
   "config.lodgen.sendSavedChunks.tooltip": "Chunks, die es schon gibt (erkundet, mit allen Bauten), werden auch zu LODs, direkt aus dem Spielstand gelesen, und erneut geschickt, wenn sie sich ändern. Ersetzt dafür Voxy Server Side",
   "config.lodgen.keepUnderground": "Tiefen Untergrund behalten",
   "config.lodgen.keepUnderground.tooltip": "Auch senden, was tief unter der Erde liegt, wo kein Tageslicht hinkommt. Nur aus Höhlen heraus sichtbar, etwa doppelt so viele Daten",
+  "config.lodgen.worldBorder": "Nur innerhalb der Weltbarriere",
+  "config.lodgen.worldBorder.tooltip": "Keine LODs hinter der Weltbarriere, wo niemand hinkann. Spart Rechenzeit und Bandbreite; aus zeigt auch das Land dahinter",
   "config.lodgen.viewDistanceMargin": "Abstand zur Sichtweite",
   "config.lodgen.viewDistanceMargin.tooltip": "So viele Chunks hinter der Sichtweite werden dem Spiel überlassen",
   "config.lodgen.performance": "Leistung",

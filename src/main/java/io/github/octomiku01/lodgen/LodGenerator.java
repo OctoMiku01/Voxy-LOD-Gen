@@ -140,6 +140,8 @@ final class LodGenerator {
         int focusX;
         int focusZ;
         int focusRadius;
+        /** The world border the walks were made for; when it grows, they start again for the new chunks */
+        BorderBounds border = BorderBounds.EVERYWHERE;
         double tokens;
         long lastRefill;
 
@@ -977,7 +979,10 @@ final class LodGenerator {
         int viewDistance = viewer.viewDistance == 0 ? 0 : viewer.viewDistance + this.config.viewDistanceMargin;
         // The game loads a circle: the first ring that reaches beyond it is the one through its diagonal
         int minRing = Math.max(1, (int) (viewDistance / Math.sqrt(2)));
-        if (progress.terrain.ring < 0 || progress.rescan || progress.viewDistance != viewDistance
+        BorderBounds border = BorderBounds.of(viewer.level, this.config);
+        boolean borderGrew = !progress.border.covers(border);
+        progress.border = border;
+        if (progress.terrain.ring < 0 || progress.rescan || borderGrew || progress.viewDistance != viewDistance
                 || Math.max(Math.abs(viewer.chunkX - progress.centerX), Math.abs(viewer.chunkZ - progress.centerZ)) >= RESCAN_DISTANCE) {
             progress.centerX = viewer.chunkX;
             progress.centerZ = viewer.chunkZ;
@@ -1040,8 +1045,16 @@ final class LodGenerator {
     private boolean walk(Viewer viewer, Progress progress, Cursor cursor, int centerX, int centerZ, int limit, boolean onlyDetails) {
         Dimension dimension = this.dimensions.get(viewer.level.dimension());
         long radiusSquared = (long) limit * limit;
+        BorderBounds border = progress.border;
+        long reach = border.reach(centerX, centerZ);
         while (cursor.ring <= limit) {
             int ring = cursor.ring;
+            if (ring > reach) {
+                // Only chunks beyond the world border are left: the walk is done
+                cursor.shownRing = limit;
+                cursor.ring = limit + 1;
+                break;
+            }
             int index = cursor.ringIndex;
             cursor.shownRing = ring;
             // Ring 0 is the center chunk alone
@@ -1068,9 +1081,9 @@ final class LodGenerator {
             }
             int chunkX = centerX + dx;
             int chunkZ = centerZ + dz;
-            if ((long) dx * dx + (long) dz * dz > radiusSquared || progress.viewDistance > 0
+            if ((long) dx * dx + (long) dz * dz > radiusSquared || !border.contains(chunkX, chunkZ) || progress.viewDistance > 0
                     && ChunkTrackingView.isWithinDistance(progress.centerX, progress.centerZ, progress.viewDistance, chunkX, chunkZ, false)) {
-                // Beyond the radius, or a chunk the game shows itself
+                // Beyond the radius or the world border, or a chunk the game shows itself
                 continue;
             }
             long key = pack(chunkX, chunkZ);

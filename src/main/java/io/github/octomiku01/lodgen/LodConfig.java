@@ -32,6 +32,8 @@ final class LodConfig {
     int tickTimeLimit = 55;
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
+    /** No LODs for chunks beyond the world border, where nobody can go */
+    boolean worldBorder = true;
     /** Up to this distance (in chunks) LODs include features: trees, flowers, lakes... Further away only terrain */
     int featureRadius = 256;
     /** First terrain quickly up to the radius, then the details up to featureRadius, closest first; the terrain stays
