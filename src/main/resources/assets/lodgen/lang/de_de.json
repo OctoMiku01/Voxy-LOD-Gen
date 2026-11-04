@@ -152,5 +152,7 @@
   "lodgen.map.waypoint.new": "Name des Wegpunkts",
   "lodgen.map.waypoint.rename": "Neuer Name des Wegpunkts",
   "lodgen.map.waypoint.default": "Wegpunkt",
-  "lodgen.map.settings.waypointsInGame": "Wegpunkte im Spiel"
+  "lodgen.map.settings.waypointsInGame": "Wegpunkte im Spiel",
+  "lodgen.map.key.screenshot.button": "F2",
+  "lodgen.map.key.screenshot": "Bild"
 }

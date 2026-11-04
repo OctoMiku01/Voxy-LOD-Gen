@@ -25,7 +25,8 @@
 		"map.IrisWorldTimeMixin",
 		"map.LevelMixin",
 		"map.LightmapRenderStateExtractorMixin",
-		"map.ScreenEffectRendererMixin"
+		"map.ScreenEffectRendererMixin",
+		"map.ScreenshotMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
