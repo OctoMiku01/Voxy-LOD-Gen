@@ -25,7 +25,8 @@
 		"map.LevelMixin",
 		"map.LightmapRenderStateExtractorMixin",
 		"map.LevelRendererMixin",
-		"map.ScreenEffectRendererMixin"
+		"map.ScreenEffectRendererMixin",
+		"map.ScreenshotMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

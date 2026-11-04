@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Screenshot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.multiplayer.PlayerInfo;
@@ -110,6 +111,10 @@ public class MapScreen extends Screen {
     private int lodsRowY = -1;
     private int structuresRowY = -1;
     private int waypointsRowY = -1;
+    /** Frames until the clean screenshot is taken, see takeCleanScreenshot; 0 when none is asked for */
+    private int cleanShotFrames;
+    private Component shotMessage;
+    private long shotMessageAt;
     /** The structure markers drawn in the last frame */
     private Set<MapStructures.Shown> shownStructures = Set.of();
     private int focusTicks;
@@ -165,6 +170,18 @@ public class MapScreen extends Screen {
             super.extractRenderState(g, mouseX, mouseY, delta);
             return;
         }
+        if (cleanShotFrames > 0) {
+            // One frame without anything of the screen first, then the picture of it
+            syncWorldCamera();
+            if (--cleanShotFrames == 0) {
+                Screenshot.grab(minecraft.gameDirectory, minecraft.gameRenderer.mainRenderTarget(), message -> minecraft.execute(() -> {
+                    minecraft.showDebugChat(message);
+                    shotMessage = message;
+                    shotMessageAt = System.currentTimeMillis();
+                }));
+            }
+            return;
+        }
         updateSmoothControls();
         syncWorldCamera();
         checkNetherCut();
@@ -175,8 +192,35 @@ public class MapScreen extends Screen {
         if (contextMenu != null) {
             contextMenu.draw(minecraft, g, mouseX, mouseY);
         }
+        drawShotMessage(g);
         drawOpeningAnimation(g);
         super.extractRenderState(g, mouseX, mouseY, delta);
+    }
+
+    /**
+     * F2 while the map is open: called instead of the game's screenshot, which would take the map's panels too. The
+     * next frame shows the map alone, and the one after takes its picture.
+     *
+     * @return whether the map takes it
+     */
+    public static boolean takeCleanScreenshot(Minecraft minecraft) {
+        if (minecraft.gui.screen() instanceof MapScreen map && MapCamera.isActive() && map.cleanShotFrames == 0) {
+            map.cleanShotFrames = 2;
+            map.contextMenu = null;
+            return true;
+        }
+        return false;
+    }
+
+    /** For a few seconds after a screenshot, where it went; the chat is hidden on the map */
+    private void drawShotMessage(GuiGraphicsExtractor g) {
+        if (shotMessage == null || System.currentTimeMillis() - shotMessageAt > 4_000) {
+            return;
+        }
+        int w = minecraft.font.width(shotMessage);
+        int y = HUD_MARGIN + 40;
+        g.fill(width / 2 - w / 2 - 6, y - 4, width / 2 + w / 2 + 6, y + 12, 0xCC030914);
+        g.centeredText(minecraft.font, shotMessage, width / 2, y, 0xFFE9F2FF);
     }
 
     @Override
@@ -939,6 +983,7 @@ public class MapScreen extends Screen {
             keys.add("cut");
         }
         keys.add("menu");
+        keys.add("screenshot");
         keys.add("center");
         keys.add("close");
         String[][] hints = new String[keys.size()][];
