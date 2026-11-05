@@ -84,6 +84,20 @@ public final class MapStructures {
         return ((long) marker.x() << 32) ^ (marker.z() & 0xFFFFFFFFL);
     }
 
+    /** "monster_room/lower" becomes "Monster Room Lower" */
+    private static String words(String text) {
+        StringBuilder result = new StringBuilder();
+        for (String word : text.split("[_/.-]")) {
+            if (!word.isEmpty()) {
+                if (!result.isEmpty()) {
+                    result.append(' ');
+                }
+                result.append(word.substring(0, 1).toUpperCase(Locale.ROOT)).append(word.substring(1));
+            }
+        }
+        return result.toString();
+    }
+
     private static boolean isMinor(String id) {
         String path = id.substring(id.indexOf(':') + 1);
         return id.startsWith("minecraft:") && MINOR.stream().anyMatch(path::startsWith);
@@ -105,18 +119,18 @@ public final class MapStructures {
         return Items.COMPASS;
     }
 
-    /** Translated for vanilla's, else made from the id: minecraft:village_plains becomes "Village Plains" */
+    /**
+     * Translated for vanilla's, else made from the id, with the mod in front: trek:monster_room/lower/default becomes
+     * "Trek: Monster Room Lower Default"
+     */
     private static Component nameOf(String id) {
-        String path = id.substring(id.indexOf(':') + 1);
+        int colon = id.indexOf(':');
+        String path = id.substring(colon + 1);
         StringBuilder fallback = new StringBuilder();
-        for (String word : path.substring(path.lastIndexOf('/') + 1).split("_")) {
-            if (!word.isEmpty()) {
-                if (!fallback.isEmpty()) {
-                    fallback.append(' ');
-                }
-                fallback.append(word.substring(0, 1).toUpperCase(Locale.ROOT)).append(word.substring(1));
-            }
+        if (colon > 0 && !id.startsWith("minecraft:")) {
+            fallback.append(words(id.substring(0, colon))).append(": ");
         }
+        fallback.append(words(path));
         String key = id.replace(':', '.').replace('/', '.');
         if (id.startsWith("minecraft:")) {
             for (String shared : SHARED_NAMES) {
