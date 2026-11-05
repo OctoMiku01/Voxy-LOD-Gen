@@ -95,6 +95,8 @@ created on first start:
 | `sendToPlayers` | true | Send LODs to other players |
 | `mapStructures` | true | Players with the 3D map open get where the structures in the LODs are (villages, temples, strongholds...), shown as markers |
 | `farPlayers` | true | Show other players beyond the view distance on the LODs, with what they ride |
+| `playerRadius` | -1 | `radius` for players without operator rights; the host and operators get all of it. -1: the same for everyone, 0: no real LODs for them (only the horizon, if it is on) |
+| `playerMapRadius` | -1 | `mapRadius` for players without operator rights; -1: the same for everyone, 0: their 3D map leads generation nowhere |
 | `maxChunksPerSecondPerPlayer` | 20 | Network limit per player |
 | `maxHorizonChunksPerSecondPerPlayer` | 500 | Network limit per player for the horizon, a few dozen bytes per chunk |
 | `checkForUpdates` | true | Ask GitHub at each start whether a newer version exists and say so in chat |
@@ -102,7 +104,9 @@ created on first start:
 
 ## Commands
 
-- `/lodgen` shows the progress and speed
+- `/lodgen` (or `/lodgen status`) shows the progress and speed
+- `/lodgen status all` (operators only) lists every player: whether they get LODs, how far, how far along they are,
+  and how much work they cause (chunks built for them and per second, their share, chunks they got)
 - `/lodgen pause` / `/lodgen resume`
 - `/lodgen reset` sends your LODs of the current dimension again, e.g. after deleting Voxy's data or updating this mod
 - `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
