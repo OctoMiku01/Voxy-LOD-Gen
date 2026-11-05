@@ -2,6 +2,7 @@ package io.github.octomiku01.lodgen;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import java.util.function.Supplier;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -110,6 +111,11 @@ public class LodGen implements ModInitializer {
     public static @Nullable String debugLine() {
         LodGenerator current = generator;
         return current == null ? null : current.debugLine();
+    }
+
+    /** The client tells which graphics card it renders with, for the file /lodgen bench writes */
+    public static void setGpuInfo(Supplier<String> gpu) {
+        LodBenchReport.setGpu(gpu);
     }
 
     /** Applies changed settings: the generator starts over with them, keeping every player's progress */
