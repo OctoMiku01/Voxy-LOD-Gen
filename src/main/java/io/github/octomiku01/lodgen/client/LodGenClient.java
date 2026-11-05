@@ -2,8 +2,8 @@ package io.github.octomiku01.lodgen.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.device.DeviceInfo;
-import com.mojang.renderpearl.api.device.GpuDevice;
+import com.mojang.blaze3d.systems.DeviceInfo;
+import com.mojang.blaze3d.systems.GpuDevice;
 import io.github.octomiku01.lodgen.LodGen;
 import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
