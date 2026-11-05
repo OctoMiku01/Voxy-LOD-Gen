@@ -57,6 +57,11 @@ final class LodConfig {
     boolean farPlayers = true;
     /** How far from the player (in chunks) the 3D map may lead generation to where it looks; 0 turns that off */
     int mapRadius = 1024;
+    /** radius for players without operator rights (permission level 2); the host and operators get radius itself.
+     *  -1: the same for everyone, 0: no real LODs for them (only the horizon, if it is on) */
+    int playerRadius = -1;
+    /** mapRadius for players without operator rights; -1: the same for everyone, 0: their 3D map leads nowhere */
+    int playerMapRadius = -1;
     /** Per player that gets LODs over the network; about 20 KiB each before the connection compresses them */
     int maxChunksPerSecondPerPlayer = 20;
     /** The horizon per player that gets it over the network; a few dozen bytes per chunk, their client builds it */
@@ -99,6 +104,21 @@ final class LodConfig {
         }
     }
 
+    /** The radius a player gets: operators all of it, others at most playerRadius */
+    int radiusFor(boolean operator) {
+        return operator || this.playerRadius < 0 ? this.radius : Math.min(this.playerRadius, this.radius);
+    }
+
+    /** The mapRadius a player gets: operators all of it, others at most playerMapRadius */
+    int mapRadiusFor(boolean operator) {
+        return operator || this.playerMapRadius < 0 ? this.mapRadius : Math.min(this.playerMapRadius, this.mapRadius);
+    }
+
+    /** Whether some players get less than others */
+    boolean limitsPlayers() {
+        return this.radiusFor(false) < this.radius || this.mapRadiusFor(false) < this.mapRadius;
+    }
+
     /** Worker threads while playing */
     int workerThreads() {
         return this.performance == LodPerformance.CUSTOM ? this.threads : this.performance.threads();
@@ -121,6 +141,8 @@ final class LodConfig {
         this.viewDistanceMargin = Math.max(0, this.viewDistanceMargin);
         this.featureRadius = Math.max(0, this.featureRadius);
         this.mapRadius = Math.max(0, this.mapRadius);
+        this.playerRadius = Math.max(-1, this.playerRadius);
+        this.playerMapRadius = Math.max(-1, this.playerMapRadius);
         this.tileSize = Math.clamp(this.tileSize, 1, 32);
         this.maxChunksPerSecondPerPlayer = Math.max(1, this.maxChunksPerSecondPerPlayer);
         this.maxHorizonChunksPerSecondPerPlayer = Math.max(1, this.maxHorizonChunksPerSecondPerPlayer);

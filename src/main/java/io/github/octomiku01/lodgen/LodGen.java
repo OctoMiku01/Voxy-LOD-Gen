@@ -88,6 +88,8 @@ public class LodGen implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
                 Commands.literal("lodgen")
                         .executes(LodGen::status)
+                        .then(Commands.literal("status").executes(LodGen::status)
+                                .then(Commands.literal("all").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(LodGen::statusAll)))
                         .then(Commands.literal("pause").executes(context -> setPaused(context, true)))
                         .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
                         .then(Commands.literal("reset").executes(LodGen::reset))
@@ -141,6 +143,11 @@ public class LodGen implements ModInitializer {
             reply(context, LodChat.info("Preparing (/lodgen pregen): " + pregen));
         }
         return 1;
+    }
+
+    // Admins: every player, how far they get LODs and how much work they cause
+    private static int statusAll(CommandContext<CommandSourceStack> context) {
+        return reply(context, generator == null ? notRunning() : generator.statusAllMessage());
     }
 
     // Prepares the structures and the horizon around where the command runs, see LodPregen

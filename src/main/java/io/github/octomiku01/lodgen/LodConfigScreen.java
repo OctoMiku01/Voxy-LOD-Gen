@@ -62,6 +62,9 @@ public final class LodConfigScreen extends OptionsSubScreen {
     private final OptionInstance<Boolean> sendToPlayers = this.toggle("sendToPlayers", this.config.sendToPlayers);
     private final OptionInstance<Boolean> farPlayers = this.toggle("farPlayers", this.config.farPlayers);
     private final OptionInstance<Boolean> mapStructures = this.toggle("mapStructures", this.config.mapStructures);
+    private final OptionInstance<Integer> playerRadius = this.slider("playerRadius", this.config.playerRadius, -1, 4096, LodConfigScreen::playerLimit);
+    private final OptionInstance<Integer> playerMapRadius = this.slider("playerMapRadius", this.config.playerMapRadius, -1, 16384,
+            LodConfigScreen::playerLimit);
     private final OptionInstance<Integer> maxChunksPerSecondPerPlayer = this.slider("maxChunksPerSecondPerPlayer",
             this.config.maxChunksPerSecondPerPlayer, 1, 1000, null);
     private final OptionInstance<Integer> maxHorizonChunksPerSecondPerPlayer = this.slider("maxHorizonChunksPerSecondPerPlayer",
@@ -143,6 +146,7 @@ public final class LodConfigScreen extends OptionsSubScreen {
             case 2 -> {
                 this.list.addSmall(this.sendToPlayers, this.farPlayers);
                 this.list.addSmall(this.mapStructures);
+                this.list.addSmall(this.playerRadius, this.playerMapRadius);
                 this.list.addBig(this.maxChunksPerSecondPerPlayer);
                 this.list.addBig(this.maxHorizonChunksPerSecondPerPlayer);
             }
@@ -191,6 +195,8 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 this.sendToPlayers.set(defaults.sendToPlayers);
                 this.farPlayers.set(defaults.farPlayers);
                 this.mapStructures.set(defaults.mapStructures);
+                this.playerRadius.set(defaults.playerRadius);
+                this.playerMapRadius.set(defaults.playerMapRadius);
                 this.maxChunksPerSecondPerPlayer.set(defaults.maxChunksPerSecondPerPlayer);
                 this.maxHorizonChunksPerSecondPerPlayer.set(defaults.maxHorizonChunksPerSecondPerPlayer);
             }
@@ -263,6 +269,8 @@ public final class LodConfigScreen extends OptionsSubScreen {
         this.config.sendToPlayers = this.sendToPlayers.get();
         this.config.farPlayers = this.farPlayers.get();
         this.config.mapStructures = this.mapStructures.get();
+        this.config.playerRadius = this.playerRadius.get();
+        this.config.playerMapRadius = this.playerMapRadius.get();
         this.config.maxChunksPerSecondPerPlayer = this.maxChunksPerSecondPerPlayer.get();
         this.config.maxHorizonChunksPerSecondPerPlayer = this.maxHorizonChunksPerSecondPerPlayer.get();
         this.config.checkForUpdates = this.checkForUpdates.get();
@@ -293,6 +301,11 @@ public final class LodConfigScreen extends OptionsSubScreen {
                 (caption, current) -> Options.genericValueLabel(caption, label == null ? Component.literal(Integer.toString(current)) : label.apply(current)),
                 new OptionInstance.IntRange(min, max), Math.clamp(value, min, max), current -> {
                 });
+    }
+
+    /** -1 gives everyone the same as operators, 0 nothing */
+    private static Component playerLimit(int value) {
+        return value < 0 ? Component.translatable("config.lodgen.sameForEveryone") : offAtZero(value);
     }
 
     private static Component offAtZero(int value) {
