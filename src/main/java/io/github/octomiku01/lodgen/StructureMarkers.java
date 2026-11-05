@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
@@ -45,6 +46,12 @@ import org.jetbrains.annotations.Nullable;
 public final class StructureMarkers {
     /** 2 adds the regions {@link StructureScan} went through */
     private static final int FORMAT = 2;
+    /**
+     * A structure that starts more often than this in one region of 32 x 32 chunks is left off the map: it would cover
+     * it (like Trek's monster rooms, in almost every chunk). Vanilla's most common ones, ocean ruins and shipwrecks,
+     * have at most about four.
+     */
+    private static final int TOO_COMMON = 8;
     /** Too many and too small to be worth a marker, mostly hidden underground */
     private static final Set<String> LEFT_OUT = Set.of("minecraft:mineshaft", "minecraft:mineshaft_mesa", "minecraft:buried_treasure",
             "minecraft:nether_fossil");
@@ -59,7 +66,23 @@ public final class StructureMarkers {
         final Map<Long, Marker> markers = new ConcurrentHashMap<>();
         /** Regions of 32 x 32 chunks whose structures were all found; guarded by itself */
         final LongOpenHashSet scanned = new LongOpenHashSet();
+        /** How many of each structure start in each region, to find those too common to show; guarded by itself */
+        final Map<String, Long2IntOpenHashMap> perRegion = new HashMap<>();
+        /** Structures too common for the map, see TOO_COMMON; each change counts, so players get the map again without them */
+        final Set<String> tooCommon = ConcurrentHashMap.newKeySet();
+        volatile int tooCommonVersion;
         volatile boolean dirty;
+
+        void count(long chunk, String id) {
+            synchronized (this.perRegion) {
+                long region = LodGenerator.pack(ChunkPos.getX(chunk) >> 5, ChunkPos.getZ(chunk) >> 5);
+                int count = this.perRegion.computeIfAbsent(id, key -> new Long2IntOpenHashMap()).addTo(region, 1) + 1;
+                if (count > TOO_COMMON && this.tooCommon.add(id)) {
+                    this.tooCommonVersion++;
+                    LodGen.LOGGER.info("Structure {} is too common for the 3D map (more than {} in a region of 32 x 32 chunks), left out", id, TOO_COMMON);
+                }
+            }
+        }
 
         Store(Path file) {
             this.file = file;
@@ -85,6 +108,7 @@ public final class StructureMarkers {
                     long chunk = in.readLong();
                     this.markers.put(chunk, new Marker(palette[in.readInt()], in.readInt(), in.readInt(), in.readInt()));
                 }
+                this.markers.forEach((chunk, marker) -> this.count(chunk, marker.id()));
                 if (format >= 2) {
                     int regions = in.readInt();
                     for (int i = 0; i < regions; i++) {
@@ -244,6 +268,12 @@ public final class StructureMarkers {
         }
     }
 
+    /** Grows whenever a structure turns out too common for the map: players who got it are sent the map again */
+    static int tooCommonVersion(ServerLevel level) {
+        Store store = storeOf(level);
+        return store == null ? 0 : store.tooCommonVersion;
+    }
+
     /** Whether {@link StructureScan} already found all structures of this region of 32 x 32 chunks */
     static boolean isScanned(ServerLevel level, long region) {
         Store store = storeOf(level);
@@ -268,6 +298,7 @@ public final class StructureMarkers {
     private static void put(Store store, long chunk, Marker marker) {
         if (store.markers.putIfAbsent(chunk, marker) == null) {
             store.dirty = true;
+            store.count(chunk, marker.id());
         }
     }
 
@@ -306,7 +337,8 @@ public final class StructureMarkers {
             long chunk = entry.getKey();
             int x = ChunkPos.getX(chunk);
             int z = ChunkPos.getZ(chunk);
-            if (Math.abs(x - chunkX) <= radius && Math.abs(z - chunkZ) <= radius && border.contains(x, z) && !sent.contains(chunk)) {
+            if (Math.abs(x - chunkX) <= radius && Math.abs(z - chunkZ) <= radius && border.contains(x, z) && !sent.contains(chunk)
+                    && !store.tooCommon.contains(entry.getValue().id())) {
                 found.add(entry);
             }
         }

@@ -94,7 +94,8 @@ final class LodGenerator {
             @Nullable ServerPlayer player, int focusX, int focusZ, int focusRadius) {
     }
 
-    private record SentStructures(ResourceKey<Level> dimension, LongOpenHashSet chunks) {
+    /** @param version see StructureMarkers#tooCommonVersion: when it changes, the player gets them all again */
+    private record SentStructures(ResourceKey<Level> dimension, int version, LongOpenHashSet chunks) {
     }
 
     /** Where the 3D map of a player looks, as they sent it */
@@ -642,9 +643,10 @@ final class LodGenerator {
                 continue;
             }
             SentStructures sent = this.sentStructures.get(viewer.id);
-            boolean reset = sent == null || sent.dimension != focus.dimension;
+            int version = StructureMarkers.tooCommonVersion(viewer.level);
+            boolean reset = sent == null || sent.dimension != focus.dimension || sent.version != version;
             if (reset) {
-                sent = new SentStructures(focus.dimension, new LongOpenHashSet());
+                sent = new SentStructures(focus.dimension, version, new LongOpenHashSet());
                 this.sentStructures.put(viewer.id, sent);
             }
             // As far as LODs or the map reach from the player, those nearest to where the map looks first
