@@ -46,6 +46,8 @@ public final class MapStructures {
 
     /** Common and small: shown smaller, so they do not crowd out the others (the ocean is full of ruins and wrecks) */
     private static final List<String> MINOR = List.of("ocean_ruin", "shipwreck", "ruined_portal", "abandoned_camp");
+    /** Last parts of structure ids that do not tell what it is */
+    private static final java.util.Set<String> GENERIC_NAMES = java.util.Set.of("default", "main", "base", "start", "normal", "common", "variant");
     /** Vanilla structures with one variant per biome that all share one name */
     private static final List<String> SHARED_NAMES = List.of("abandoned_camp");
 
@@ -120,17 +122,22 @@ public final class MapStructures {
     }
 
     /**
-     * Translated for vanilla's, else made from the id, with the mod in front: trek:monster_room/lower/default becomes
-     * "Trek: Monster Room Lower Default"
+     * Translated for vanilla's, else made from the id, with the mod in front: the last part of its path, which mods
+     * use for the name (folders before it are categories); with the part before when the last says nothing.
+     * trek:overworld/common/mushroom_house becomes "Trek: Mushroom House", trek:monster_room/lower/default
+     * "Trek: Lower Default"
      */
     private static Component nameOf(String id) {
         int colon = id.indexOf(':');
         String path = id.substring(colon + 1);
+        String[] parts = path.split("/");
+        String last = parts[parts.length - 1];
+        String shown = parts.length > 1 && (GENERIC_NAMES.contains(last) || last.matches("[0-9_]+")) ? parts[parts.length - 2] + "_" + last : last;
         StringBuilder fallback = new StringBuilder();
         if (colon > 0 && !id.startsWith("minecraft:")) {
             fallback.append(words(id.substring(0, colon))).append(": ");
         }
-        fallback.append(words(path));
+        fallback.append(words(shown));
         String key = id.replace(':', '.').replace('/', '.');
         if (id.startsWith("minecraft:")) {
             for (String shared : SHARED_NAMES) {
