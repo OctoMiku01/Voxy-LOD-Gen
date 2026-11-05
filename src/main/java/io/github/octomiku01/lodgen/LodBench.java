@@ -1,15 +1,21 @@
 package io.github.octomiku01.lodgen;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -19,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * {@code /lodgen bench <radius>}: measures how fast this machine builds LODs with features, with the threads of the
  * performance setting. Builds the tiles of the square around where the command runs and throws them away; the normal
  * generation pauses meanwhile, so both do not share the CPU. Gives comparable numbers for bug reports and for choosing
- * a performance level.
+ * a performance level. The result is also saved as a file, with what it ran on, see {@link LodBenchReport}.
  */
 final class LodBench {
     private static final AtomicBoolean RUNNING = new AtomicBoolean();
@@ -73,10 +79,24 @@ final class LodBench {
                     chunks += result.get();
                 }
                 double seconds = (System.nanoTime() - start) / 1e9;
-                String line = String.format("Benchmark done: %d chunks in %.1f s = %.1f chunks/s with %d threads (%s), %d cores",
+                String result = String.format(Locale.ROOT, "%d chunks in %.1f s = %.1f chunks/s with %d threads (%s), %d cores",
                         chunks, seconds, chunks / seconds, threads, config.performance, LodPerformance.CORES);
+                String line = "Benchmark done: " + result;
                 LodGen.LOGGER.info(line);
                 server.execute(() -> reply(source, LodChat.success(line)));
+                // Generation is still paused: asking the system for the CPU does not disturb it
+                LodBenchReport.Run run = new LodBenchReport.Run(result,
+                        String.format(Locale.ROOT, "%d tiles of %d x %d chunks, %d chunks around chunk %d, %d", tiles, size, size, radius, center.x(), center.z()),
+                        level.dimension().identifier().toString(), builder.generatorName(), server.isDedicatedServer());
+                try {
+                    Path file = LodBenchReport.write(run, config);
+                    Path shown = FabricLoader.getInstance().getGameDir().relativize(file);
+                    LodGen.LOGGER.info("Benchmark saved to {}", file);
+                    server.execute(() -> reply(source, saved(shown, file)));
+                } catch (IOException | RuntimeException e) {
+                    LodGen.LOGGER.error("Could not save the benchmark", e);
+                    server.execute(() -> reply(source, LodChat.warning("Could not save the benchmark to a file: " + e)));
+                }
             } catch (Throwable t) {
                 LodGen.LOGGER.error("Benchmark failed", t);
                 server.execute(() -> reply(source, LodChat.error("Benchmark failed: " + t)));
@@ -88,6 +108,15 @@ final class LodBench {
                 RUNNING.set(false);
             }
         }, "LodGen-Bench").start();
+    }
+
+    /** Where the file is; clicking copies its full path, to find it or attach it to a bug report */
+    private static Component saved(Path shown, Path file) {
+        String path = file.toAbsolutePath().toString();
+        return LodChat.tag().append(LodChat.label("Saved with versions, hardware, settings and mods to "))
+                .append(Component.literal(shown.toString().replace('\\', '/')).withStyle(style -> style.withUnderlined(true)
+                        .withClickEvent(new ClickEvent.CopyToClipboard(path))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to copy the full path\n" + path)))));
     }
 
     private static void reply(CommandSourceStack source, Component message) {

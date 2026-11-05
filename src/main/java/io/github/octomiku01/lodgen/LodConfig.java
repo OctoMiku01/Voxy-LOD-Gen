@@ -95,10 +95,15 @@ final class LodConfig {
         return config;
     }
 
+    /** The settings as they are written to the file */
+    String toJson() {
+        return GSON.toJson(this);
+    }
+
     void save() {
         try {
             Files.createDirectories(FILE.getParent());
-            Files.writeString(FILE, GSON.toJson(this), StandardCharsets.UTF_8);
+            Files.writeString(FILE, this.toJson(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             LodGen.LOGGER.error("Could not write {}", FILE, e);
         }
