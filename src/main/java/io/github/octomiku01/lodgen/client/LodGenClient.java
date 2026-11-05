@@ -1,6 +1,10 @@
 package io.github.octomiku01.lodgen.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.device.DeviceInfo;
+import com.mojang.renderpearl.api.device.GpuDevice;
+import io.github.octomiku01.lodgen.LodGen;
 import io.github.octomiku01.lodgen.FarEntitiesPayload;
 import io.github.octomiku01.lodgen.LodChunkPayload;
 import io.github.octomiku01.lodgen.LodHorizonPayload;
@@ -26,6 +30,14 @@ public class LodGenClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         LodDebugEntry.register();
+        LodGen.setGpuInfo(() -> {
+            GpuDevice device = RenderSystem.tryGetDevice();
+            if (device == null) {
+                return "unknown";
+            }
+            DeviceInfo info = device.getDeviceInfo();
+            return info.name() + " (" + info.vendorName() + ", " + info.backendName() + ", driver " + info.driverInfo() + ")";
+        });
         ClientLifecycleEvents.CLIENT_STARTED.register(LodDebugEntry::showByDefault);
         if (!FabricLoader.getInstance().isModLoaded("voxy")) {
             ClientTickEvents.END_CLIENT_TICK.register(VoxyMissingNotice::tick);
