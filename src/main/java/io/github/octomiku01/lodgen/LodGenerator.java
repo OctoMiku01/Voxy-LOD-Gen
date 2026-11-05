@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceKey;
@@ -88,10 +89,11 @@ final class LodGenerator {
 
     /**
      * Where a player who gets LODs is; published by the server thread. While their 3D map is open, focusRadius is
-     * above 0 and the chunks around where it looks come first.
+     * above 0 and the chunks around where it looks come first. Operators (and the host) get the whole radius and
+     * mapRadius, other players perhaps less, see {@link LodConfig#radiusFor}.
      */
     private record Viewer(UUID id, String name, boolean host, ServerLevel level, int chunkX, int chunkZ, float yaw, int viewDistance,
-            @Nullable ServerPlayer player, int focusX, int focusZ, int focusRadius) {
+            @Nullable ServerPlayer player, int focusX, int focusZ, int focusRadius, boolean operator, int radius, int mapRadius) {
     }
 
     /** @param version see StructureMarkers#tooCommonVersion: when it changes, the player gets them all again */
@@ -309,7 +311,33 @@ final class LodGenerator {
         }
     }
 
-    private record Recipient(LodSink sink, Progress progress) {
+    private record Recipient(LodSink sink, Progress progress, Load load) {
+    }
+
+    /**
+     * How much work a player causes, for /lodgen status all: the chunks built because they needed them first, and the
+     * LOD chunks they got (also ones built for someone else). Since the generation started, and per second over the
+     * last minute.
+     */
+    private static final class Load {
+        final AtomicLong built = new AtomicLong();
+        final AtomicLong delivered = new AtomicLong();
+        /** {time, built, delivered} at each stats interval, oldest first; scheduler thread only */
+        final ArrayDeque<long[]> samples = new ArrayDeque<>();
+        volatile double builtRate;
+        volatile double deliveredRate;
+
+        void update(long now) {
+            this.samples.add(new long[] {now, this.built.get(), this.delivered.get()});
+            while (now - this.samples.getFirst()[0] > RATE_WINDOW_MILLIS) {
+                this.samples.removeFirst();
+            }
+            long[] oldest = this.samples.getFirst();
+            long[] newest = this.samples.getLast();
+            double seconds = (newest[0] - oldest[0]) / 1000.0;
+            this.builtRate = seconds <= 0 ? 0 : (newest[1] - oldest[1]) / seconds;
+            this.deliveredRate = seconds <= 0 ? 0 : (newest[2] - oldest[2]) / seconds;
+        }
     }
 
     private enum Join { ADDED, ALREADY, TOO_LATE }
@@ -428,6 +456,7 @@ final class LodGenerator {
     private final @Nullable StructureScan structureScan;
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
+    private final Map<UUID, Load> loads = new ConcurrentHashMap<>();
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicLong generated = new AtomicLong();
     // What the LOD chunks built so far are: only terrain, with features, or read from real chunks in the save
@@ -472,7 +501,12 @@ final class LodGenerator {
         this.scheduler.setDaemon(true);
         this.scheduler.start();
         LodGen.LOGGER.info("Generating LODs up to {} chunks away with {} threads ({})", config.radius, config.workerThreads(), config.performance);
-        this.horizon = !benchmark && config.horizonRadius > config.radius ? new LodHorizon(this, config) : null;
+        if (config.limitsPlayers()) {
+            LodGen.LOGGER.info("Players without operator rights get LODs up to {} chunks away, the 3D map up to {}", config.radiusFor(false),
+                    config.mapRadiusFor(false));
+        }
+        // Players with a smaller radius get the horizon from where their LODs end
+        this.horizon = !benchmark && config.horizonRadius > config.radiusFor(false) ? new LodHorizon(this, config) : null;
         this.structureScan = config.structures && config.mapStructures ? new StructureScan(this, config) : null;
     }
 
@@ -540,11 +574,13 @@ final class LodGenerator {
             ChunkPos pos = player.chunkPosition();
             // The chunks the game sends this player itself
             int viewDistance = Mth.clamp(player.requestedViewDistance(), 2, this.server.getPlayerList().getViewDistance());
+            boolean operator = host || Commands.LEVEL_GAMEMASTERS.check(player.permissions());
             current.add(new Viewer(player.getUUID(), player.getScoreboardName(), host, (ServerLevel) player.level(), pos.x(), pos.z(), player.getYRot(),
-                    viewDistance, player, 0, 0, 0));
+                    viewDistance, player, 0, 0, 0, operator, this.config.radiusFor(operator), this.config.mapRadiusFor(operator)));
         }
         if (current.isEmpty() && this.benchmark) {
-            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, 0, null, 0, 0, 0));
+            current.add(new Viewer(NO_PLAYER, "benchmark", false, this.server.overworld(), 0, 0, 0, 0, null, 0, 0, 0, true, this.config.radius,
+                    this.config.mapRadius));
         }
         this.viewers = List.copyOf(current);
         if (this.horizon != null) {
@@ -563,7 +599,7 @@ final class LodGenerator {
     }
 
     private static LodHorizon.Target horizonTarget(Viewer viewer) {
-        return new LodHorizon.Target(viewer.id, viewer.host, viewer.level, viewer.chunkX, viewer.chunkZ, viewer.player);
+        return new LodHorizon.Target(viewer.id, viewer.host, viewer.level, viewer.chunkX, viewer.chunkZ, viewer.player, viewer.radius);
     }
 
     /** Whether this player gets the horizon */
@@ -585,15 +621,16 @@ final class LodGenerator {
      */
     private Viewer withFocus(Viewer viewer, long now) {
         MapFocus focus = this.mapFocus.get(viewer.id);
-        if (focus == null || this.config.mapRadius <= 0 || focus.dimension != viewer.level.dimension() || now - focus.time >= FOCUS_TIMEOUT_MILLIS) {
+        if (focus == null || viewer.mapRadius <= 0 || focus.dimension != viewer.level.dimension() || now - focus.time >= FOCUS_TIMEOUT_MILLIS) {
             return viewer;
         }
         // Not further from the player than the server allows
         int dx = focus.chunkX - viewer.chunkX;
         int dz = focus.chunkZ - viewer.chunkZ;
-        double scale = Math.min(1.0, this.config.mapRadius / Math.max(1.0, Math.max(Math.abs(dx), Math.abs(dz))));
+        double scale = Math.min(1.0, viewer.mapRadius / Math.max(1.0, Math.max(Math.abs(dx), Math.abs(dz))));
         return new Viewer(viewer.id, viewer.name, viewer.host, viewer.level, viewer.chunkX, viewer.chunkZ, viewer.yaw, viewer.viewDistance,
-                viewer.player, viewer.chunkX + (int) Math.round(dx * scale), viewer.chunkZ + (int) Math.round(dz * scale), focus.radius);
+                viewer.player, viewer.chunkX + (int) Math.round(dx * scale), viewer.chunkZ + (int) Math.round(dz * scale), focus.radius,
+                viewer.operator, viewer.radius, viewer.mapRadius);
     }
 
     /**
@@ -650,7 +687,7 @@ final class LodGenerator {
                 this.sentStructures.put(viewer.id, sent);
             }
             // As far as LODs or the map reach from the player, those nearest to where the map looks first
-            int limit = Math.max(Math.max(this.config.radius, this.config.horizonRadius), this.config.mapRadius);
+            int limit = Math.max(Math.max(viewer.radius, this.config.horizonRadius), viewer.mapRadius);
             List<StructureMarkers.Marker> markers = StructureMarkers.unsent(viewer.level, viewer.chunkX, viewer.chunkZ, limit,
                     focus.chunkX, focus.chunkZ, sent.chunks, MAX_STRUCTURES_PER_SECOND, BorderBounds.of(viewer.level, this.config));
             if (reset || !markers.isEmpty()) {
@@ -682,7 +719,7 @@ final class LodGenerator {
                 continue;
             }
             this.progressSent.put(viewer.id, now);
-            int reach = Math.min(MAX_PROGRESS_RADIUS, Math.max(this.config.radius, this.horizon != null ? this.config.horizonRadius : 0));
+            int reach = Math.min(MAX_PROGRESS_RADIUS, Math.max(viewer.radius, this.horizon != null ? this.config.horizonRadius : 0));
             int side = 2 * reach + 1;
             int cell = Math.max(1, (side + PROGRESS_CELLS - 1) / PROGRESS_CELLS);
             int size = (side + cell - 1) / cell;
@@ -779,9 +816,9 @@ final class LodGenerator {
                 text.append("; ").append(viewer.level.dimension().identifier()).append(" is not supported");
             } else {
                 Progress progress = this.progressOf(viewer);
-                String rings = ringStatus(progress.terrain.shownRing, this.config.radius);
+                String rings = ringStatus(progress.terrain.shownRing, viewer.radius);
                 if (this.config.terrainFirst) {
-                    rings = "terrain " + rings + ", details " + ringStatus(progress.details.shownRing, this.featureRadius());
+                    rings = "terrain " + rings + ", details " + ringStatus(progress.details.shownRing, this.featureRadius(viewer));
                 }
                 if (viewer.focusRadius > 0) {
                     rings += ", map at " + viewer.focusX * 16 + ", " + viewer.focusZ * 16 + " " + ringStatus(progress.focus.shownRing, viewer.focusRadius);
@@ -831,16 +868,23 @@ final class LodGenerator {
         if (viewer != null) {
             text.append(LodChat.newLine()).append(Component.literal(viewer.name).withStyle(ChatFormatting.AQUA))
                     .append(LodChat.label(" in ")).append(LodChat.value(viewer.level.dimension().identifier().toString()));
+            if (viewer.radius < this.config.radius || viewer.mapRadius < this.config.mapRadius) {
+                text.append(LodChat.newLine()).append(LodChat.label("  Limited for players without operator rights: "))
+                        .append(LodChat.value(viewer.radius)).append(LodChat.label(" chunks"));
+                if (viewer.mapRadius < this.config.mapRadius) {
+                    text.append(LodChat.separator()).append(LodChat.label("3D map ")).append(LodChat.value(viewer.mapRadius));
+                }
+            }
             Dimension dimension = this.dimensions.get(viewer.level.dimension());
             if (dimension != null && dimension.builder == null) {
                 text.append(LodChat.newLine()).append(Component.literal("  This dimension is not supported").withStyle(ChatFormatting.RED));
             } else {
                 Progress progress = this.progressOf(viewer);
                 text.append(LodChat.newLine()).append(LodChat.label(this.config.terrainFirst ? "  Terrain  " : "  Rings  "))
-                        .append(LodChat.progress(progress.terrain.shownRing, this.config.radius));
+                        .append(LodChat.progress(progress.terrain.shownRing, viewer.radius));
                 if (this.config.terrainFirst) {
                     text.append(LodChat.newLine()).append(LodChat.label("  Details  "))
-                            .append(LodChat.progress(progress.details.shownRing, this.featureRadius()));
+                            .append(LodChat.progress(progress.details.shownRing, this.featureRadius(viewer)));
                 }
                 if (viewer.focusRadius > 0) {
                     text.append(LodChat.newLine()).append(LodChat.label("  3D map  "))
@@ -864,6 +908,62 @@ final class LodGenerator {
         } else if (asking != null) {
             text.append(LodChat.newLine()).append(Component.literal("You get no LODs: this mod or Voxy is missing on your client")
                     .withStyle(ChatFormatting.YELLOW));
+        }
+        return text;
+    }
+
+    /**
+     * For /lodgen status all: every player on the server, with how far they get LODs, how far along they are and how
+     * much work they cause, so admins see who loads the server
+     */
+    Component statusAllMessage() {
+        long now = System.currentTimeMillis();
+        Map<UUID, Viewer> byId = new HashMap<>();
+        for (Viewer viewer : this.viewers) {
+            byId.put(viewer.id, this.withFocus(viewer, now));
+        }
+        List<ServerPlayer> players = this.server.getPlayerList().getPlayers();
+        MutableComponent text = LodChat.tag().append(Component.literal("All players").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD))
+                .append(LodChat.label("  " + byId.size() + " of " + players.size() + " get LODs"))
+                .append(LodChat.separator()).append(LodChat.value(String.format(Locale.ROOT, "%.1f", this.rate))).append(LodChat.label(" chunks/s in all"));
+        if (this.config.limitsPlayers()) {
+            text.append(LodChat.newLine()).append(LodChat.label("Without operator rights: ")).append(LodChat.value(this.config.radiusFor(false)))
+                    .append(LodChat.label(" chunks")).append(LodChat.separator()).append(LodChat.label("3D map "))
+                    .append(LodChat.value(this.config.mapRadiusFor(false)));
+        }
+        long total = 0;
+        for (Load load : this.loads.values()) {
+            total += load.built.get();
+        }
+        for (ServerPlayer player : players) {
+            Viewer viewer = byId.get(player.getUUID());
+            text.append(LodChat.newLine()).append(Component.literal(player.getScoreboardName()).withStyle(ChatFormatting.AQUA));
+            if (viewer == null) {
+                text.append(LodChat.label("  no LODs (this mod or Voxy missing)"));
+                continue;
+            }
+            text.append(Component.literal(viewer.host ? "  host" : viewer.operator ? "  operator" : "").withStyle(ChatFormatting.GOLD));
+            text.append(LodChat.label("  " + viewer.level.dimension().identifier().getPath()));
+            Load load = this.loads.get(viewer.id);
+            long built = load == null ? 0 : load.built.get();
+            text.append(LodChat.newLine()).append(LodChat.label("  Built for them  ")).append(LodChat.value(built))
+                    .append(LodChat.label(String.format(Locale.ROOT, " (%.1f/s, %d%%)", load == null ? 0 : load.builtRate,
+                            total == 0 ? 0 : Math.round(100.0 * built / total))))
+                    .append(LodChat.separator()).append(LodChat.label("got ")).append(LodChat.value(load == null ? 0 : load.delivered.get()))
+                    .append(LodChat.label(String.format(Locale.ROOT, " (%.1f/s)", load == null ? 0 : load.deliveredRate)));
+            Dimension dimension = this.dimensions.get(viewer.level.dimension());
+            if (dimension != null && dimension.builder == null) {
+                text.append(LodChat.newLine()).append(Component.literal("  This dimension is not supported").withStyle(ChatFormatting.RED));
+                continue;
+            }
+            Progress progress = this.progressOf(viewer);
+            text.append(LodChat.newLine()).append(LodChat.label("  Terrain  ")).append(LodChat.progress(progress.terrain.shownRing, viewer.radius));
+            if (viewer.focusRadius > 0) {
+                text.append(LodChat.label("  3D map open at ")).append(LodChat.value(viewer.focusX * 16 + ", " + viewer.focusZ * 16));
+            }
+            if (this.getsHorizon(viewer)) {
+                text.append(LodChat.separator()).append(LodChat.value(this.horizon.status(horizonTarget(viewer)).done())).append(LodChat.label(" horizon"));
+            }
         }
         return text;
     }
@@ -951,6 +1051,9 @@ final class LodGenerator {
                     }
                     long[] oldest = samples.getFirst();
                     this.rate = now == oldest[0] ? 0 : (total - oldest[1]) * 1000.0 / (now - oldest[0]);
+                    for (Load load : this.loads.values()) {
+                        load.update(now);
+                    }
                     if (total != generatedAtLastStats) {
                         LodGen.LOGGER.info("{}", this.status(null));
                     }
@@ -1041,9 +1144,9 @@ final class LodGenerator {
         return this.threads() * 2;
     }
 
-    /** Details reach no further than the LODs themselves, also when featureRadius is set larger than radius */
-    private int featureRadius() {
-        return Math.min(this.config.featureRadius, this.config.radius);
+    /** Details reach no further than the player's LODs themselves, also when featureRadius is set larger than radius */
+    private int featureRadius(Viewer viewer) {
+        return Math.min(this.config.featureRadius, viewer.radius);
     }
 
     // While the game is paused it needs no CPU time, so more workers can run
@@ -1173,17 +1276,17 @@ final class LodGenerator {
             progress.focus.shownRing = -1;
         }
         if (!this.config.terrainFirst) {
-            return this.walk(viewer, progress, progress.terrain, progress.centerX, progress.centerZ, this.config.radius, false);
+            return this.walk(viewer, progress, progress.terrain, progress.centerX, progress.centerZ, viewer.radius, false);
         }
         while (true) {
-            boolean terrainDone = progress.terrain.ring > this.config.radius;
-            boolean detailsDone = progress.details.ring > this.featureRadius();
+            boolean terrainDone = progress.terrain.ring > viewer.radius;
+            boolean detailsDone = progress.details.ring > this.featureRadius(viewer);
             if (terrainDone && detailsDone) {
                 return false;
             }
             boolean details = terrainDone || !detailsDone && 2 * progress.details.ring <= progress.terrain.ring;
             Cursor cursor = details ? progress.details : progress.terrain;
-            int limit = details ? this.featureRadius() : this.config.radius;
+            int limit = details ? this.featureRadius(viewer) : viewer.radius;
             if (this.walk(viewer, progress, cursor, progress.centerX, progress.centerZ, limit, details)) {
                 return true;
             }
@@ -1247,7 +1350,7 @@ final class LodGenerator {
             }
             long key = pack(chunkX, chunkZ);
             // Around the 3D map only terrain: it is about seeing far quickly, the details follow near the player
-            boolean features = onlyDetails || cursor != progress.focus && !this.config.terrainFirst && ring <= this.featureRadius();
+            boolean features = onlyDetails || cursor != progress.focus && !this.config.terrainFirst && ring <= this.featureRadius(viewer);
             int savedAt = dimension.saved.savedAt(chunkX, chunkZ);
             if (savedAt != 0) {
                 // A real chunk: its LOD comes from the save, with the players' builds, never from generated terrain.
@@ -1266,7 +1369,8 @@ final class LodGenerator {
                 cursor.ringIndex--;
                 return false;
             }
-            Recipient recipient = new Recipient(sink, progress);
+            Load load = this.loads.computeIfAbsent(viewer.id, id -> new Load());
+            Recipient recipient = new Recipient(sink, progress, load);
 
             // Features are built in tiles, terrain and real chunks chunk by chunk
             int size = features ? this.config.tileSize : 1;
@@ -1285,6 +1389,7 @@ final class LodGenerator {
                 task = new Task(minX, minZ, size, features, saved, savedAt);
                 task.add(recipient);
                 tasks.put(taskKey, task);
+                load.built.addAndGet((long) size * size);
                 progress.tokens -= this.wanted(task, progress);
                 this.inFlight.incrementAndGet();
                 this.lastQueued = System.currentTimeMillis();
@@ -1406,6 +1511,7 @@ final class LodGenerator {
                     return;
                 }
                 task.delivered(index, recipient.progress, chunk);
+                recipient.load.delivered.incrementAndGet();
                 if (recipient.sink instanceof NetworkSink) {
                     this.sent.incrementAndGet();
                 }

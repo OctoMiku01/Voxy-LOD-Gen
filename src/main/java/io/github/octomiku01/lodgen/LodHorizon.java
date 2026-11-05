@@ -63,8 +63,12 @@ final class LodHorizon {
     /** A real LOD read from the save is about this many times the size of a chunk's samples, for the send rate */
     private static final int REAL_COST = 50;
 
-    /** Someone who gets the horizon: the host (straight into Voxy) or a player with this mod (over the network) */
-    record Target(UUID id, boolean host, ServerLevel level, int chunkX, int chunkZ, @Nullable ServerPlayer player) {
+    /**
+     * Someone who gets the horizon: the host (straight into Voxy) or a player with this mod (over the network)
+     *
+     * @param radius how far their real LODs reach: the horizon starts there
+     */
+    record Target(UUID id, boolean host, ServerLevel level, int chunkX, int chunkZ, @Nullable ServerPlayer player, int radius) {
     }
 
     /**
@@ -86,6 +90,8 @@ final class LodHorizon {
         int centerZ;
         int ring;
         int index;
+        /** The radius of the player's real LODs the walk was made for */
+        int radius;
         /** The world border the walk was made for; when it grows, it starts again for the new chunks */
         BorderBounds border = BorderBounds.EVERYWHERE;
         double tokens;
@@ -110,8 +116,6 @@ final class LodHorizon {
 
     private final LodGenerator generator;
     private final LodConfig config;
-    private final int fromRing;
-    private final int radius;
     private final int toRing;
     private final List<Thread> threads = new ArrayList<>();
     private volatile boolean running = true;
@@ -140,10 +144,6 @@ final class LodHorizon {
     LodHorizon(LodGenerator generator, LodConfig config) {
         this.generator = generator;
         this.config = config;
-        // The generation fills a circle of the radius on square rings: the horizon starts where the circle leaves the
-        // rings, so the corners between them are filled too, and leaves the circle to the generation
-        this.fromRing = (int) (config.radius / Math.sqrt(2));
-        this.radius = config.radius;
         this.toRing = config.horizonRadius;
         // Half of the generation's threads: the real LODs around the players come first
         int count = Math.max(1, config.workerThreads() / 2);
@@ -153,7 +153,7 @@ final class LodHorizon {
             this.threads.add(thread);
             thread.start();
         }
-        LodGen.LOGGER.info("Horizon from {} up to {} chunks away with {} threads", this.radius, this.toRing, count);
+        LodGen.LOGGER.info("Horizon from {} up to {} chunks away with {} threads", config.radius, this.toRing, count);
     }
 
     void stop() {
@@ -385,12 +385,15 @@ final class LodHorizon {
         BorderBounds border = BorderBounds.of(target.level(), this.config);
         boolean borderGrew = !watcher.border.covers(border);
         watcher.border = border;
-        if (!watcher.started || borderGrew
+        if (!watcher.started || borderGrew || watcher.radius != target.radius()
                 || Math.max(Math.abs(target.chunkX() - watcher.centerX), Math.abs(target.chunkZ() - watcher.centerZ)) >= RECENTER_DISTANCE) {
             watcher.started = true;
             watcher.centerX = target.chunkX();
             watcher.centerZ = target.chunkZ();
-            watcher.ring = this.fromRing;
+            // The generation fills a circle of the radius on square rings: the horizon starts where the circle leaves
+            // the rings, so the corners between them are filled too, and leaves the circle to the generation
+            watcher.radius = target.radius();
+            watcher.ring = (int) (target.radius() / Math.sqrt(2));
             watcher.index = 0;
         }
         long reach = border.reach(watcher.centerX, watcher.centerZ);
@@ -429,7 +432,7 @@ final class LodHorizon {
             long dz = z - watcher.centerZ;
             long distanceSquared = dx * dx + dz * dz;
             long chunk = LodGenerator.pack(x, z);
-            if (distanceSquared <= (long) this.radius * this.radius || !border.contains(x, z) || watcher.done.contains(chunk) || this.generator.hasReal(target, chunk)) {
+            if (distanceSquared <= (long) watcher.radius * watcher.radius || !border.contains(x, z) || watcher.done.contains(chunk) || this.generator.hasReal(target, chunk)) {
                 continue;
             }
             // Finer close by, coarser further away, where Voxy shows coarser detail anyway: by the distance itself, not
