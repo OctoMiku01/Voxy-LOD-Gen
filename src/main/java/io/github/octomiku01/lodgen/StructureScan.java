@@ -37,9 +37,12 @@ final class StructureScan {
         this.thread.start();
     }
 
+    /**
+     * Not by interrupting: finding structures may read their templates from a mod's jar, and an interrupt there closes
+     * that jar for every thread, so the mod's structures could not load any more until the game restarts
+     */
     void stop() {
         this.running = false;
-        this.thread.interrupt();
         try {
             this.thread.join(5_000);
         } catch (InterruptedException e) {
