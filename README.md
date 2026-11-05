@@ -113,7 +113,8 @@ created on first start:
   it, running it again goes on from there
 - `/lodgen bench [radius]` (operators only) measures how fast this computer builds LODs with features around you, with
   the threads of the performance setting; the generation pauses meanwhile. Handy for choosing a performance level and
-  for bug reports
+  for bug reports: the result is also saved to `lodgen/bench/` in the game (or server) folder, with the versions,
+  hardware, settings and mod list, ready to attach to an issue. Clicking the file name in chat copies its path
 
 The F3 screen shows a line with the speed, threads and performance level of the world you host, or how many LODs
 came from the server. It can be switched off like every entry there (F3 + F6).
