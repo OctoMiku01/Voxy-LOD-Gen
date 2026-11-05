@@ -923,8 +923,14 @@ final class LodGenerator {
             byId.put(viewer.id, this.withFocus(viewer, now));
         }
         List<ServerPlayer> players = this.server.getPlayerList().getPlayers();
+        int getting = 0;
+        for (ServerPlayer player : players) {
+            if (byId.containsKey(player.getUUID())) {
+                getting++;
+            }
+        }
         MutableComponent text = LodChat.tag().append(Component.literal("All players").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD))
-                .append(LodChat.label("  " + byId.size() + " of " + players.size() + " get LODs"))
+                .append(LodChat.label("  " + getting + " of " + players.size() + " get LODs"))
                 .append(LodChat.separator()).append(LodChat.value(String.format(Locale.ROOT, "%.1f", this.rate))).append(LodChat.label(" chunks/s in all"));
         if (this.config.limitsPlayers()) {
             text.append(LodChat.newLine()).append(LodChat.label("Without operator rights: ")).append(LodChat.value(this.config.radiusFor(false)))
