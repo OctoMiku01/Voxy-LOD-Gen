@@ -18,6 +18,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import net.minecraft.core.registries.Registries;
@@ -41,7 +44,7 @@ import org.jetbrains.annotations.Nullable;
  * read from the save. Kept per dimension in {@code <world>/lodgen/structures/}, so they survive restarts without
  * generating anything again.
  * <p>
- * Thread safe: workers note structures, the server thread reads them and saves.
+ * Thread safe: workers note structures, the server thread reads them, and a thread of its own saves them.
  */
 public final class StructureMarkers {
     /** 2 adds the regions {@link StructureScan} went through */
@@ -128,15 +131,17 @@ public final class StructureMarkers {
             try {
                 Files.createDirectories(this.file.getParent());
                 Path temp = this.file.resolveSibling(this.file.getFileName() + ".tmp");
-                Map<Long, Marker> copy = Map.copyOf(this.markers);
+                // Not Map.copyOf: a Long chunk key hashes to x ^ z, so many collide, and its probing then takes
+                // quadratic time (froze the server for half a minute with many markers)
+                List<Map.Entry<Long, Marker>> copy = new ArrayList<>(this.markers.entrySet());
                 long[] regions;
                 synchronized (this.scanned) {
                     regions = this.scanned.toLongArray();
                 }
                 List<String> palette = new ArrayList<>();
                 Map<String, Integer> index = new HashMap<>();
-                for (Marker marker : copy.values()) {
-                    index.computeIfAbsent(marker.id, id -> {
+                for (Map.Entry<Long, Marker> entry : copy) {
+                    index.computeIfAbsent(entry.getValue().id, id -> {
                         palette.add(id);
                         return palette.size() - 1;
                     });
@@ -148,7 +153,7 @@ public final class StructureMarkers {
                         out.writeUTF(id);
                     }
                     out.writeInt(copy.size());
-                    for (Map.Entry<Long, Marker> entry : copy.entrySet()) {
+                    for (Map.Entry<Long, Marker> entry : copy) {
                         Marker marker = entry.getValue();
                         out.writeLong(entry.getKey());
                         out.writeInt(index.get(marker.id));
@@ -162,7 +167,7 @@ public final class StructureMarkers {
                     }
                 }
                 Files.move(temp, this.file, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 this.dirty = true;
                 LodGen.LOGGER.error("Could not save {}", this.file, e);
             }
@@ -171,6 +176,12 @@ public final class StructureMarkers {
 
     private static volatile @Nullable MinecraftServer server;
     private static final Map<ResourceKey<Level>, Store> STORES = new ConcurrentHashMap<>();
+    /** Writes the stores one after another, so an older save never replaces a newer one */
+    private static final ExecutorService WRITER = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "LOD Gen structure markers");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private StructureMarkers() {
     }
@@ -181,14 +192,24 @@ public final class StructureMarkers {
     }
 
     static void stop() {
-        save();
+        // Waits for the saves still queued, then writes what changed since
+        List<Store> stores = new ArrayList<>(STORES.values());
+        try {
+            WRITER.submit(() -> stores.forEach(Store::save)).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            LodGen.LOGGER.error("Could not save the structure markers", e);
+        }
         STORES.clear();
         server = null;
     }
 
-    /** Server thread, every minute and when the server stops */
+    /** Server thread, every minute: written on {@link #WRITER}, so the server does not wait for it */
     static void save() {
-        STORES.values().forEach(Store::save);
+        for (Store store : STORES.values()) {
+            WRITER.execute(store::save);
+        }
     }
 
     private static @Nullable Store storeOf(ServerLevel level) {
