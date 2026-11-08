@@ -1,7 +1,9 @@
 package io.github.octomiku01.lodgen;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
+import java.util.Locale;
 import java.util.function.Supplier;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -9,9 +11,11 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;
@@ -99,6 +103,7 @@ public class LodGen implements ModInitializer {
                                         .executes(context -> setPausedAll(context, false))))
                         .then(Commands.literal("reset").executes(LodGen::reset))
                         .then(Commands.literal("compare").executes(LodGen::compare))
+                        .then(performanceCommand())
                         .then(Commands.literal("pregen").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                                 .executes(context -> pregen(context, LodPregen.defaultRadius(LodConfig.load())))
                                 .then(Commands.literal("stop").executes(context -> reply(context, LodPregen.stop())))
@@ -144,6 +149,55 @@ public class LodGen implements ModInitializer {
 
     private static void startFarPlayers(MinecraftServer server, LodConfig config) {
         farPlayers = config.farPlayers && config.sendToPlayers ? new FarPlayers(server, config.radius) : null;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> performanceCommand() {
+        LiteralArgumentBuilder<CommandSourceStack> command = Commands.literal("performance")
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .executes(LodGen::showPerformance);
+        for (LodPerformance level : LodPerformance.values()) {
+            if (level != LodPerformance.CUSTOM) {
+                command.then(Commands.literal(level.name().toLowerCase(Locale.ROOT)).executes(context -> setPerformance(context, level)));
+            }
+        }
+        command.then(Commands.literal("custom").then(Commands.argument("threads", IntegerArgumentType.integer(1, LodPerformance.CORES))
+                .executes(context -> setCustomThreads(context, IntegerArgumentType.getInteger(context, "threads")))));
+        return command;
+    }
+
+    private static int showPerformance(CommandContext<CommandSourceStack> context) {
+        LodConfig config = LodConfig.load();
+        MutableComponent text = LodChat.tag().append(Component.literal("Performance  ").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD))
+                .append(LodChat.value(config.performance.name().toLowerCase(Locale.ROOT)))
+                .append(LodChat.label(" (" + config.workerThreads() + " of " + LodPerformance.CORES + " threads)"));
+        for (LodPerformance level : LodPerformance.values()) {
+            if (level != LodPerformance.CUSTOM) {
+                text.append(LodChat.newLine()).append(LodChat.label("  " + level.name().toLowerCase(Locale.ROOT) + "  "))
+                        .append(LodChat.value(level.threads())).append(LodChat.label(" threads"));
+            }
+        }
+        return reply(context, text);
+    }
+
+    private static int setPerformance(CommandContext<CommandSourceStack> context, LodPerformance level) {
+        LodConfig config = LodConfig.load();
+        config.performance = level;
+        config.save();
+        if (generator != null) {
+            generator.applyPerformance(config);
+        }
+        return reply(context, LodChat.success("Performance set to " + level.name().toLowerCase(Locale.ROOT) + " (" + config.workerThreads() + " threads)"));
+    }
+
+    private static int setCustomThreads(CommandContext<CommandSourceStack> context, int threads) {
+        LodConfig config = LodConfig.load();
+        config.performance = LodPerformance.CUSTOM;
+        config.threads = threads;
+        config.save();
+        if (generator != null) {
+            generator.applyPerformance(config);
+        }
+        return reply(context, LodChat.success("Performance set to custom (" + config.workerThreads() + " threads)"));
     }
 
     private static int status(CommandContext<CommandSourceStack> context) {
