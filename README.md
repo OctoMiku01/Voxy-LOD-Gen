@@ -109,6 +109,8 @@ created on first start:
   and how much work they cause (chunks built for them and per second, their share, chunks they got)
 - `/lodgen pause` / `/lodgen resume` pauses or resumes your own LODs (`/lodgen pause all` / `/lodgen resume all` for
   operators pauses or resumes for everyone; from the server console `/lodgen pause` does the same)
+- `/lodgen performance [very_low|low|balanced|fast|full|custom <threads>]` (operators only) shows or changes the CPU
+  preset on the fly and saves it to `config/lodgen.json`
 - `/lodgen reset` sends your LODs of the current dimension again, e.g. after deleting Voxy's data or updating this mod
 - `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
 - `/lodgen pregen [radius]` (operators only) prepares what the server keeps for everyone around where it runs (the

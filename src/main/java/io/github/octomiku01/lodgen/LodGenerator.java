@@ -782,6 +782,18 @@ final class LodGenerator {
         return this.paused;
     }
 
+    /** Applies a changed performance setting right away, without restarting the generator */
+    void applyPerformance(LodConfig updated) {
+        this.config.performance = updated.performance;
+        this.config.threads = updated.threads;
+        this.config.threadsWhilePaused = updated.threadsWhilePaused;
+        this.adjustThreads();
+        if (this.horizon != null) {
+            this.horizon.adjustThreads();
+        }
+        LodGen.LOGGER.info("Performance set to {} ({} threads)", updated.performance, updated.workerThreads());
+    }
+
     void setPaused(boolean paused) {
         this.paused = paused;
     }

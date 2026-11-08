@@ -18,11 +18,11 @@ final class LodConfig {
     /** How far from the player LODs are generated, in chunks */
     int radius = 256;
     /** How much of the CPU generation may use; CUSTOM uses the two thread counts below */
-    LodPerformance performance = LodPerformance.BALANCED;
+    volatile LodPerformance performance = LodPerformance.BALANCED;
     /** Worker threads with the CUSTOM performance; the default leaves room for the game, rendering and Voxy itself */
-    int threads = LodPerformance.BALANCED.threads();
+    volatile int threads = LodPerformance.BALANCED.threads();
     /** Worker threads with the CUSTOM performance while the game is paused (single player menu): it needs no CPU time then */
-    int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
+    volatile int threadsWhilePaused = LodPerformance.BALANCED.threadsWhilePaused();
     /** Beyond the radius, up to this distance (in chunks), rough LODs show the horizon: only the height and the
      *  biome of the ground, far cheaper than real ones. Other players with this mod get it too (see
      *  maxHorizonChunksPerSecondPerPlayer); 0 turns it off */

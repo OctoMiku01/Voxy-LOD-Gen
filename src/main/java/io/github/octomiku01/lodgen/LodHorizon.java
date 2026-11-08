@@ -147,14 +147,29 @@ final class LodHorizon {
         this.config = config;
         this.toRing = config.horizonRadius;
         // Half of the generation's threads: the real LODs around the players come first
-        int count = Math.max(1, config.workerThreads() / 2);
-        for (int i = 1; i <= count; i++) {
-            Thread thread = new LodWorkerThread(this::run, "LodGen-Horizon-" + i);
+        this.adjustThreads();
+        LodGen.LOGGER.info("Horizon from {} up to {} chunks away with {} threads", config.radius, this.toRing, this.threads.size());
+    }
+
+    /** Adjusts the horizon's threads to half of the generation's when the performance preset changes */
+    synchronized void adjustThreads() {
+        if (!this.running) {
+            return;
+        }
+        int wanted = Math.max(1, this.config.workerThreads() / 2);
+        while (this.threads.size() < wanted) {
+            Thread thread = new LodWorkerThread(this::run, "LodGen-Horizon-" + (this.threads.size() + 1));
             thread.setPriority(Thread.MIN_PRIORITY);
             this.threads.add(thread);
             thread.start();
         }
-        LodGen.LOGGER.info("Horizon from {} up to {} chunks away with {} threads", config.radius, this.toRing, count);
+        while (this.threads.size() > wanted) {
+            this.threads.removeLast();
+        }
+    }
+
+    private synchronized boolean isActiveThread(Thread thread) {
+        return this.running && this.threads.contains(thread);
     }
 
     void stop() {
@@ -196,7 +211,7 @@ final class LodHorizon {
         Map<ResourceKey<Level>, LodHorizonBuilder> rough = new HashMap<>();
         Map<ResourceKey<Level>, LodChunkBuilder> real = new HashMap<>();
         try {
-            while (this.running) {
+            while (this.isActiveThread(Thread.currentThread())) {
                 @Nullable Job job = this.next();
                 if (job == null) {
                     Thread.sleep(200);
