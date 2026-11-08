@@ -457,6 +457,8 @@ final class LodGenerator {
     private final Map<ResourceKey<Level>, Dimension> dimensions = new ConcurrentHashMap<>();
     private final Map<UUID, Map<ResourceKey<Level>, Progress>> progress = new ConcurrentHashMap<>();
     private final Map<UUID, Load> loads = new ConcurrentHashMap<>();
+    /** Players who paused their own LODs with /lodgen pause */
+    private final Set<UUID> pausedPlayers = ConcurrentHashMap.newKeySet();
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicLong generated = new AtomicLong();
     // What the LOD chunks built so far are: only terrain, with features, or read from real chunks in the save
@@ -591,7 +593,9 @@ final class LodGenerator {
                     continue;
                 }
                 if (viewer.host || viewer.player != null && ServerPlayNetworking.canSend(viewer.player, LodHorizonPayload.TYPE)) {
-                    targets.add(horizonTarget(viewer));
+                    if (!this.pausedPlayers.contains(viewer.id)) {
+                        targets.add(horizonTarget(viewer));
+                    }
                 }
             }
             this.horizonTargets = List.copyOf(targets);
@@ -604,15 +608,8 @@ final class LodGenerator {
 
     /** Whether this player gets the horizon */
     private boolean getsHorizon(Viewer viewer) {
-        if (this.horizon == null) {
-            return false;
-        }
-        for (LodHorizon.Target target : this.horizonTargets) {
-            if (target.id().equals(viewer.id)) {
-                return true;
-            }
-        }
-        return false;
+        return this.horizon != null && !viewer.level.dimensionType().hasCeiling()
+                && (viewer.host || viewer.player != null && ServerPlayNetworking.canSend(viewer.player, LodHorizonPayload.TYPE));
     }
 
     /**
@@ -789,6 +786,23 @@ final class LodGenerator {
         this.paused = paused;
     }
 
+    boolean isPaused(UUID player) {
+        return this.pausedPlayers.contains(player);
+    }
+
+    /** Pauses or resumes this player's own LODs; false if they get no LODs */
+    boolean setPaused(ServerPlayer player, boolean paused) {
+        if (this.viewerOf(player.getUUID()) == null) {
+            return false;
+        }
+        if (paused) {
+            this.pausedPlayers.add(player.getUUID());
+        } else {
+            this.pausedPlayers.remove(player.getUUID());
+        }
+        return true;
+    }
+
     /** Forgets which LODs this player already got in their current dimension, so they are sent again */
     boolean reset(ServerPlayer player) {
         Viewer viewer = this.viewerOf(player.getUUID());
@@ -804,12 +818,13 @@ final class LodGenerator {
 
     String status(@Nullable ServerPlayer asking) {
         List<Viewer> current = this.viewers;
-        StringBuilder text = new StringBuilder(this.paused ? "[paused] " : this.throttled ? "[throttled, the server is busy] " : "");
+        Viewer viewer = this.statusViewer(asking, current);
+        boolean viewerPaused = viewer != null && this.pausedPlayers.contains(viewer.id);
+        StringBuilder text = new StringBuilder(this.paused || viewerPaused ? "[paused] " : this.throttled ? "[throttled, the server is busy] " : "");
         text.append(String.format("%.1f chunks/s, %d in progress, %d threads, %d player(s), %d sent over the network",
                 this.rate, this.inFlight.get(), this.threads(), current.size(), this.sent.get()));
         text.append(String.format("; built since the start: %d (%d terrain only, %d with features, %d from the save)",
                 this.generated.get(), this.builtTerrain.get(), this.builtFeatures.get(), this.builtSaved.get()));
-        Viewer viewer = this.statusViewer(asking, current);
         if (viewer != null) {
             Dimension dimension = this.dimensions.get(viewer.level.dimension());
             if (dimension != null && dimension.builder == null) {
@@ -839,7 +854,14 @@ final class LodGenerator {
 
     /** Short, for the F3 screen; called on the render thread */
     String debugLine() {
-        String state = this.paused ? ", paused" : this.throttled ? ", slowed down (busy server)" : "";
+        boolean hostPaused = false;
+        for (Viewer viewer : this.viewers) {
+            if (viewer.host && this.pausedPlayers.contains(viewer.id)) {
+                hostPaused = true;
+                break;
+            }
+        }
+        String state = this.paused || hostPaused ? ", paused" : this.throttled ? ", slowed down (busy server)" : "";
         return String.format(Locale.ROOT, "LOD Gen: %.1f chunks/s, %d threads (%s)%s, %d built", this.rate, this.threads(),
                 this.config.performance.name().toLowerCase(Locale.ROOT), state, this.generated.get());
     }
@@ -847,8 +869,12 @@ final class LodGenerator {
     /** The same as {@link #status}, laid out over several lines with colours, for the /lodgen command */
     Component statusMessage(@Nullable ServerPlayer asking) {
         List<Viewer> current = this.viewers;
+        Viewer viewer = this.statusViewer(asking, current);
+        boolean viewerPaused = viewer != null && this.pausedPlayers.contains(viewer.id);
         MutableComponent text = LodChat.tag().append(Component.literal("Status").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD));
         if (this.paused) {
+            text.append(Component.literal(current.size() > 1 ? "  paused for everyone" : "  paused").withStyle(ChatFormatting.YELLOW));
+        } else if (viewerPaused) {
             text.append(Component.literal("  paused").withStyle(ChatFormatting.YELLOW));
         } else if (this.throttled) {
             text.append(Component.literal(String.format("  slowed down: ticks take %.0f ms", this.server.getAverageTickTimeNanos() / 1e6))
@@ -864,7 +890,6 @@ final class LodGenerator {
                 .append(LodChat.label(" (")).append(LodChat.value(this.builtTerrain.get())).append(LodChat.label(" terrain only"))
                 .append(LodChat.separator()).append(LodChat.value(this.builtFeatures.get())).append(LodChat.label(" with features"))
                 .append(LodChat.separator()).append(LodChat.value(this.builtSaved.get())).append(LodChat.label(" from the save)"));
-        Viewer viewer = this.statusViewer(asking, current);
         if (viewer != null) {
             text.append(LodChat.newLine()).append(Component.literal(viewer.name).withStyle(ChatFormatting.AQUA))
                     .append(LodChat.label(" in ")).append(LodChat.value(viewer.level.dimension().identifier().toString()));
@@ -893,9 +918,10 @@ final class LodGenerator {
                 }
                 if (this.getsHorizon(viewer)) {
                     LodHorizon.Status horizon = this.horizon.status(horizonTarget(viewer));
+                    String waiting = viewerPaused ? "paused" : horizon.waiting();
                     text.append(LodChat.newLine()).append(LodChat.label("  Horizon  ")).append(LodChat.progress(horizon.ring(), horizon.toRing()));
-                    if (horizon.waiting() != null) {
-                        text.append(Component.literal("  waits: " + horizon.waiting()).withStyle(ChatFormatting.YELLOW));
+                    if (waiting != null) {
+                        text.append(Component.literal("  waits: " + waiting).withStyle(ChatFormatting.YELLOW));
                     } else if (horizon.ring() <= horizon.toRing()) {
                         text.append(LodChat.separator()).append(LodChat.value(String.format("%.0f", horizon.rate()))).append(LodChat.label(" chunks/s"));
                     }
@@ -950,6 +976,9 @@ final class LodGenerator {
             }
             text.append(Component.literal(viewer.host ? "  host" : viewer.operator ? "  operator" : "").withStyle(ChatFormatting.GOLD));
             text.append(LodChat.label("  " + viewer.level.dimension().identifier().getPath()));
+            if (this.pausedPlayers.contains(viewer.id)) {
+                text.append(Component.literal("  paused").withStyle(ChatFormatting.YELLOW));
+            }
             Load load = this.loads.get(viewer.id);
             long built = load == null ? 0 : load.built.get();
             text.append(LodChat.newLine()).append(LodChat.label("  Built for them  ")).append(LodChat.value(built))
@@ -1118,7 +1147,7 @@ final class LodGenerator {
             Viewer viewer = this.withFocus(published, now);
             Dimension dimension = this.dimensions.computeIfAbsent(viewer.level.dimension(), key -> new Dimension(viewer.level));
             Progress progress = this.progressOf(viewer);
-            if (dimension.builder == null || now < progress.pausedUntil) {
+            if (dimension.builder == null || this.pausedPlayers.contains(viewer.id) || now < progress.pausedUntil) {
                 continue;
             }
             this.refillTokens(viewer, progress, now);

@@ -91,8 +91,12 @@ public class LodGen implements ModInitializer {
                         .executes(LodGen::status)
                         .then(Commands.literal("status").executes(LodGen::status)
                                 .then(Commands.literal("all").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(LodGen::statusAll)))
-                        .then(Commands.literal("pause").executes(context -> setPaused(context, true)))
-                        .then(Commands.literal("resume").executes(context -> setPaused(context, false)))
+                        .then(Commands.literal("pause").executes(context -> setPaused(context, true))
+                                .then(Commands.literal("all").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                                        .executes(context -> setPausedAll(context, true))))
+                        .then(Commands.literal("resume").executes(context -> setPaused(context, false))
+                                .then(Commands.literal("all").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                                        .executes(context -> setPausedAll(context, false))))
                         .then(Commands.literal("reset").executes(LodGen::reset))
                         .then(Commands.literal("compare").executes(LodGen::compare))
                         .then(Commands.literal("pregen").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
@@ -165,8 +169,30 @@ public class LodGen implements ModInitializer {
         if (generator == null) {
             return reply(context, notRunning());
         }
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) {
+            return setPausedAll(context, paused);
+        }
+        if (!paused && generator.isPaused() && !generator.isPaused(player.getUUID())) {
+            if (Commands.LEVEL_GAMEMASTERS.check(player.permissions())) {
+                return setPausedAll(context, false);
+            }
+            return reply(context, LodChat.warning("Paused for everyone by an operator"));
+        }
+        if (!generator.setPaused(player, paused)) {
+            return reply(context, LodChat.warning("You get no LODs: this mod or Voxy is missing on your client"));
+        }
+        return reply(context, paused ? LodChat.warning("Your LODs are paused, /lodgen resume continues")
+                : LodChat.success("Resumed" + (generator.isPaused() ? " (still paused for everyone by an operator)" : "")));
+    }
+
+    private static int setPausedAll(CommandContext<CommandSourceStack> context, boolean paused) {
+        if (generator == null) {
+            return reply(context, notRunning());
+        }
         generator.setPaused(paused);
-        return reply(context, paused ? LodChat.warning("Paused, /lodgen resume continues") : LodChat.success("Resumed"));
+        return reply(context, paused ? LodChat.warning("Paused for everyone, /lodgen resume all continues")
+                : LodChat.success("Resumed for everyone"));
     }
 
     // e.g. after deleting Voxy's data: all LODs of the current dimension are sent again
