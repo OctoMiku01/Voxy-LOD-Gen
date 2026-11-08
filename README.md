@@ -107,7 +107,8 @@ created on first start:
 - `/lodgen` (or `/lodgen status`) shows the progress and speed
 - `/lodgen status all` (operators only) lists every player: whether they get LODs, how far, how far along they are,
   and how much work they cause (chunks built for them and per second, their share, chunks they got)
-- `/lodgen pause` / `/lodgen resume`
+- `/lodgen pause` / `/lodgen resume` pauses or resumes your own LODs (`/lodgen pause all` / `/lodgen resume all` for
+  operators pauses or resumes for everyone; from the server console `/lodgen pause` does the same)
 - `/lodgen reset` sends your LODs of the current dimension again, e.g. after deleting Voxy's data or updating this mod
 - `/lodgen compare` compares the LODs around you with the real chunks there (for finding generation differences)
 - `/lodgen pregen [radius]` (operators only) prepares what the server keeps for everyone around where it runs (the
