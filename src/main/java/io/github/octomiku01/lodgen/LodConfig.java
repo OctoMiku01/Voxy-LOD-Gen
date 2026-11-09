@@ -29,7 +29,7 @@ final class LodConfig {
     int horizonRadius = 0;
     /** While the server's ticks take longer than this (milliseconds, 50 is the budget of a tick), only one worker
      *  runs; 0 turns this off */
-    int tickTimeLimit = 55;
+    int tickTimeLimit = 45;
     /** Also send the sections deep underground that no daylight reaches; they only show when looking through caves */
     boolean keepUnderground = false;
     /** No LODs for chunks beyond the world border, where nobody can go */
